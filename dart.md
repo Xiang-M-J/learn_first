@@ -351,7 +351,7 @@ set.remove(3);     // 指定值删除
 字典，`{key: value}`
 
 ```dart
-var gifts = Map<String, String>();
+var gifts = Map<String, String>();  // 两个 String 表明 key 和 value 的类型
 gifts['first'] = 'partridge';
 gifts['second'] = 'turtledoves';
 gifts['fifth'] = 'golden rings';
@@ -748,6 +748,83 @@ void main(){
 
 `super` 关键字访问父类，`this` 访问自身。
 
+类中的成员如果用 static 修饰，可以让多个相同类型的类对象共享同一个成员变量的实例。
+
+| 判断顺序                                   | 关键字                                                       |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| 值是编译时常数                             | static const                                                 |
+| 值不是编译时常数，但所有类都共享同一个实例 | static final：在声明的时候就能确定值，并且不再改变；static：不能确定。 |
+| 各个类对象持有不同的实例，但只能被赋值一次 | final                                                        |
+| 其它                                       | 普通定义                                                     |
+
+ 用 static 修饰的函数为静态函数，静态函数可以无需实例化即可访问：
+
+```dart
+class MyClass {
+  static void myStaticFunction() {
+    print('This is a static function');
+  }
+}
+// 调用静态函数
+MyClass.myStaticFunction();
+```
+
+下面是几种常见的类的构造函数：
+
+```dart
+// 带构造函数的，可以在构造函数里面初始化。
+class Point{
+  final double x;
+  final double y;
+  late double z;
+  // 在括号内的参数是命名参数可以给默认值，该参数实例化时不需要给值
+  Point(this.x, this.y, {this.z=0});
+  // Point(this.x, this.y, {required this.z}); // 命名参数可以不给默认值，但在实例化的时候需要
+  Point.fromJson(json): x = json['x'], y =json['y'];
+  Point.printList(list): x=list[0], y = list[1]{
+    print("x: $x \t y: $y");
+  }
+  Point.alongXAxis(double x): this(x, 0);
+}
+
+// 不带构造函数，需要将变量声明可为null，而使用final、static 需要初始化
+class Color{
+  double? x;
+  final double y=0;
+}
+// 带静态属性的类，静态属性只能在声明时就初始化。
+class Location{
+  static String city = "nj";
+
+  static void name() {
+    print(city);
+  }
+}
+
+void main() {
+  Point point = Point(0, 0, 1);
+  Point point1 = Point.fromJson({"x": 1.0, "y": 2.0});
+  print(point.x);       // 0.0
+  print(point1.y);      // 2.0
+  print(Color().x);     // null
+  print(Color().y);     // 0.0
+  print(Location.city); // nj
+  Location.name();      // nj
+}
+```
+
+对于带 const 的构造函数，类中的属性应该用 final 定义
+
+```dart
+class ConstClass {
+  final String a;
+  final String b = "";  // 已经初始化，无需在构造函数中初始化
+  const ConstClass(this.a);
+}
+```
+
+
+
 
 
 ### 成员方法
@@ -808,6 +885,68 @@ void main(){
 
 
 
+#### 工厂构造函数
+
+使用 factory 关键字标识类的构造函数将会令该构造函数变为工厂构造函数，这将意味着使用该构造函数构造类的实例时并非总是会返回新的实例对象。例如，工厂构造函数可能会从缓存中返回一个实例，或者返回一个子类型的实例。
+
+>在工厂构造函数中无法访问 this。如果想让抽象类同时可被实例化，可以为其定义工厂构造函数。
+
+1. 避免创建过多的重复实例，如果已创建该实例，则从缓存中拿出来
+
+```dart
+class Logger {
+  final String name;
+  bool mute = false;
+
+  static final Map<String, Logger> _cache = <String, Logger>{};
+
+  factory Logger(String name) {
+    return _cache.putIfAbsent(name, () => Logger._internal(name));
+  }
+
+  factory Logger.fromJson(Map<String, Object> json) {
+    return Logger(json['name'].toString());
+  }
+
+  Logger._internal(this.name);
+
+  void log(String msg) {
+    if (!mute) print(msg);
+  }
+}
+```
+
+2. 调用子类的构造函数
+
+```dart
+abstract class Animal {
+  String? name;
+  void getNoise();
+  factory Animal(String type, String name) {
+    switch (type) {
+      case "dog":
+        return new Dog(name);
+      default:
+        throw "The '$type' is not an animal";
+    }
+  }
+}
+class Dog implements Animal {
+  String? name;
+  Dog(this.name);
+  @override
+  void getNoise() {
+    print("${this.name}: 旺~");
+  }
+}
+```
+
+
+
+
+
+
+
 #### Setters 和 Getters
 
 ```dart
@@ -855,6 +994,32 @@ class SmartTelevision extends Television {
   // ···
 }
 ```
+
+子类使用父类的构造函数：
+
+```dart
+class Person {
+  String? firstName;
+
+  Person.fromJson(Map data) {
+    print('in Person');
+  }
+}
+
+class Employee extends Person {
+  // Person 没有默认的构造函数，需要调用 super.fromJson()
+  Employee.fromJson(super.data) : super.fromJson() {
+    print('in Employee');
+  }
+}
+
+void main() {
+  var employee = Employee.fromJson({});
+  print(employee);
+}
+```
+
+
 
 
 
