@@ -21,6 +21,16 @@ flutter run
 
 `flutter pub add <package>`：添加包
 
+
+
+flutter 构建 App，在项目路径下执行
+
+```powershell
+flutter build apk
+```
+
+
+
  
 
 ### 基本知识
@@ -442,7 +452,7 @@ Fluttertoast.showToast(
 
 
 
-### 弹出列表菜单
+### 弹出列表菜单 PopupMenuButton
 
 ```dart
 class Mymenu extends StatelessWidget {

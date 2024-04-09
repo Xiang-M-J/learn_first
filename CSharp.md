@@ -153,9 +153,7 @@ namespace downloadGithub
     internal class CommandRunner
     {
         public CommandRunner()
-        {
-            
-        }
+        {}
         public Result Run(string command, string WorkingDirectory="")
         {
             Process process = new Process();
@@ -165,11 +163,11 @@ namespace downloadGithub
             process.StartInfo.RedirectStandardOutput = true;	// 是否有标准输出
             process.StartInfo.RedirectStandardInput = true;		// 是否有标准输入
             process.StartInfo.CreateNoWindow = false;	// 是否无窗口
-            if (WorkingDirectory != "") {				// 设置工作目录，不设置该项，则默认为与程序共同路径。
+            if (WorkingDirectory != "") {  // 设置工作目录，不设置该项，则默认为与程序共同路径。
                 process.StartInfo.WorkingDirectory = WorkingDirectory;
             }
             process.Start();
-            process.StandardInput.WriteLine(command + "&exit");		// 加上 exit 确保退出，不会假死。
+            process.StandardInput.WriteLine(command + "&exit");// 加上 exit 确保退出，不会假死。
             process.StandardInput.AutoFlush = true;
             process.WaitForExit();
             Result result = new Result(process.StandardOutput.ReadToEnd(), process.StandardError.ReadToEnd());
@@ -207,7 +205,7 @@ namespace downloadGithub
 ```csharp
 private async void htmlParser(string url)
 {
-    string content = await GetHtmlContentAsync(url);	// 
+    string content = await GetHtmlContentAsync(url);
     Trace.WriteLine(content);
 }
 
