@@ -56,7 +56,7 @@ gcc -Og -S hello.c
 
 不同编译器对不同的高级语言生成的汇编语言都是相似的。
 
-3. 汇编阶段：汇编器（as）将 hello.s 翻译成机器语言指令，将它们以一种称为可重定位对象程序的形式打包，并将结果存储在对象文件 hello.o 中，这个文件是一个二进制文件，使用了 17 各字节来编码 main 函数中指令。
+3. 汇编阶段：汇编器（as）将 hello.s 翻译成机器语言指令，将它们以一种称为可重定位对象程序的形式打包，并将结果存储在目标文件 hello.o 中，这个文件是一个二进制文件，使用了 17 各字节来编码 main 函数中指令。
 4. 连接阶段：上面的程序调用了 printf 函数，这个函数是 C 语言编译器标准库的一部分。printf 函数存放在一个单独的预编译目标文件 prinf.o，连接器（ld）将它们合并在一起，结果就是 hello 文件，该文件可以执行。
 
 
@@ -1481,4 +1481,531 @@ GCC 可以通过命令行参数 -mavx2 来生成 AVX2 代码。AVX 浮点结构�
 
 
 
-392
+### The Y86-64 Instruction Set Architecture
+
+
+
+Y86-64 指令集一共有 15 个 64 比特程序寄存器 %rax, %rcx, %rdx, %rbx, %rsp, %rbp, %rsi, %rdi, and %r8 - %r14（省略了 %r15 来简化设计），寄存器 %rsp 作为栈指针。一个有三个单比特状态码，ZF，SF 和 OF。程序计数器储存最先被执行的命令地址。Y86-64 使用虚拟地址来索引内存。程序状态最后一个部分为状态字 Stat，用来表示程序执行的状态，表明是否是正常的操作或者出错了，如指令试图访问非法地址。
+
+Y86-64 指令集只包括 8 字节的整数元素，所以指令集很少，如下图所示，
+
+<img src="https://cdn.jsdelivr.net/gh/Xiang-M-J/MyPic@img/img/image-20240412092938485.png" alt="image-20240412092938485" style="zoom: 80%;" />
+
+指令的长度在 1-10 字节，一个指令集由 1 字节的指令标识符，一个可选的 1 字节寄存器标识符，可选的 8 字节常数。数据移动指令可以分为 rrmovq、irmovq、rmmovq 和 mrmovq，其中 immediate(i)，register(r)，memory(m)。OPq 表示 addq、subq、andq 和 xorq，只操作寄存器的值（x86-64 允许操作内存数据），这四个指令会设置三个状态码 ZF、SF 和 OF。有 7 条用于跳转的指令：jmp、jle、jl、je、jne、jge 和 jg，6 个条件移动指令 cmovle、cmovl、cmove、cmovne、cmovge 和 cmovg，如 cmovle 表示小于等于时移动。
+
+ 指令标识符被分为两个 4 比特部分，高位为 code，低位为 function，如 OPq 的高位均为 6，但是不同 function 的低位不同
+
+| function | 指令标识符 |
+| -------- | ---------- |
+| addq     | 6    0     |
+| subq     | 6    1     |
+| andq     | 6    2     |
+| xorq     | 6    3     |
+
+15 个程序寄存器有一个相关联的寄存器标识符（0-0xE），Y86-64 中的寄存器编号与 x86-64 中使用的寄存器编号相匹配。程序寄存器存储在 CPU 内的寄存器文件中，寄存器文件是一个小的随机存取存储器，其中寄存器 id 作为地址。ID值 0xF 用于指令编码和硬件设计中，当我们需要指示不应该访问寄存器时。
+
+> 假设 rdx 寄存器对应的标识符为 2，rsp 寄存器的标识符为 4，则指令 rmmovq %rsp,0x123456789abcd(%rdx) 的编码（小端）为
+
+将 0x123456789abcd 补零为 8 字节：00 01 23 45 67 89 ab cd，rmmovq 对应的标识符为 40，程序寄存器的标识符为 42，则编码（小端）为 4042cdab896745230100。
+
+---
+
+任何指令集的一个重要性质是任意字节序列只对应一个唯一的指令表示，这个性质确保处理器可以无歧义地执行指令。指令集中的地址进 1 表示一个字节，假如一个指令为 10 字节，起始地址为 0x100，则该指令的下一个指令的起始地址为 0x10A。
+
+### Logic Design and the Hardware Control Language HCL
+
+时钟寄存器（或简称寄存器）存储单个比特或字，时钟信号用它的输入值控制寄存器的加载。
+
+随机存取存储（或简称存储）存储多个单词，使用地址来选择要读或写的字。随机存取存储器的例子包括（1）处理器的虚拟存储系统，其中硬件和操作系统软件的组合使处理器看起来它可以访问大地址空间中的任何字；（2）寄存器文件，其中寄存器标识符作为地址。在Y86-64处理器中，寄存器文件保存了15个程序寄存器（%rax到%r14）。
+
+对于大多数时间，寄存器保持固定状态，生成与其当前状态相等的输出。信号通过寄存器前面的组合逻辑传播，为寄存器输入创建一个新值，但只要时钟不变，寄存器输出就保持固定。当时钟上升时，输入信号被加载到寄存器中作为其下一个状态，并且这成为新的寄存器输出，直到下一个上升时钟边缘。关键的一点是寄存器作为电路不同部分的组合逻辑之间的屏障。值只在每一个时钟周期的上升边缘从寄存器输入传播到它的输出。Y86-64 处理器将使用时钟寄存器来保存程序计数器，状态码和程序码。
+
+### Sequential Y86-64 Implementations
+
+一般来说，处理一条指令包含一系列操作，可以分为
+
+Fetch：使用程序计数器作为地址从内存中读取指令，从指令提取两个 4 比特部分，分别为 instruction code 和 instruction function，然后可能获取一个或两个寄存器操作数标识符 rA 和 rB，还有可能获取 8 字节常数 valC。除此之外计算 valP 作为下一个指令的地址，即 valP 等于 PC 的值加上 fetch 指令的长度。
+
+Decode：decode 阶段最多从寄存器文件读取两个操作数，赋值为 valA 和 valB，一般从寄存器 rA 和 rB 中读取，一些指令会读取 %rsp。
+
+Execute：Execute 阶段，ALU 执行指令指定的操作，计算有效地址，增减栈指针，结果为 valE
+
+Memory：memory 阶段可能从内存中读取数据，数据为 valM
+
+Write back：write-back 阶段最多向寄存器写两个结果
+
+PC update：PC 更新为下一个指令的地址
+
+
+
+> 给出 mrmovq D(rB), rA 指令不同阶段的操作
+
+| 阶段       | mrmovq D(rB), rA                                             |
+| ---------- | ------------------------------------------------------------ |
+| Fetch      | icode:ifun ← M1[PC] <br/>rA:rB ← M1[PC+1]<br/>valC ← M8[PC+2]<br/>valP ← PC+10 |
+| Decode     | valB ← R[rB]                                                 |
+| Execute    | valE ← valB+valC                                             |
+| Memory     | valM ← M8[valE]                                              |
+| Write back | R[rA] ← valM                                                 |
+| PCupdate   | PC ← valP                                                    |
+
+---
+
+下图是顺序指令执行的简单过程
+
+<img src="https://cdn.jsdelivr.net/gh/Xiang-M-J/MyPic@img/img/image-20240416081609660.png" alt="image-20240416081609660" style="zoom:80%;" />
+
+下面是一个更为详细的执行过程，每个白色圆形都表示一个时钟周期
+
+<img src="https://cdn.jsdelivr.net/gh/Xiang-M-J/MyPic@img/img/image-20240416082337491.png" alt="image-20240416082337491" style="zoom:80%;" />
+
+准则：No reading back
+
+处理器不需要回读被指令更新的状态。
+
+这条准则对于指令集的实现非常重要，如 pushq 指令先将 %rsp 降低 8，然后使用更新后的 %rsp 作为写操作的地址，这样便会违背上面的准则。相反，可以先生成降低后的地址作为信号 valE，再使用这个信号作为寄存器写入的数据和内存写的地址，这样便可以同时执行寄存器写和内存写的指令。
+
+
+
+
+
+###  General Principles of Pipelining
+
+
+
+
+
+### Pipelined Y86-64 Implementations
+
+
+
+
+
+
+
+## 5 Optimizing Program Performance
+
+
+
+### Capabilities and Limitations of Optimizing Compilers
+
+现代编译器如 GCC 可以对程序进行深层次的优化，使用选项 -O1 或更高的 -O2 或 -O3 可以进行更多优化，提升程序性能。
+
+编译器必须要进行安全的优化，考虑下面的程序
+
+```c
+void twiddle1(long *xp,long *yp)
+{ 
+    *xp+=*yp;
+    *xp+=*yp;
+}
+void twiddle2(long *xp,long *yp)
+{
+    *xp += 2* *yp;
+}
+```
+
+一般情况下可以认为 twiddle2 的效率比 twiddle1 高，因为其只需要执行一次读 *xp、读 *yp 和写 *xp，而 twiddle1 则需要两次。但是当 yp = xp 时，我们会发现两者运行的结果不同
+
+```c
+void twiddle1(long *xp,long *xp)
+{ 
+    *xp+=*xp;
+    *xp+=*xp;  // *xp = 4 * *xp
+}
+void twiddle2(long *xp,long *xp)
+{
+    *xp += 2* *xp; // *xp = 3 * *xp
+}
+```
+
+两个指针指向同一片内存这种情况称为内存别名。
+
+另一种情况是函数调用，如 func1 和 func2 看似相同，但是如果 f() 中更改了全局变量，那么便会出现问题
+
+```c
+long f();
+long func1(){
+    return f() + f() + f() + f();
+}
+long func2(){
+    return 4 * f();
+}
+```
+
+
+
+### Expressing Program Performance
+
+计算机的性能指标常用 cycles per element （CPE，每元素指令数），一个 4GHz 的处理器每秒运行 4G 次循环。许多函数会在循环中迭代一些元素，下面的函数 psum1 和 psum2 的功能都是计算一个数组的和
+
+```c
+void psum1(float a[],float p[],long n)
+{
+    long i;
+    p[0]=a[0];
+    for(i=1;i<n;i++)
+        p[i]=p[i-1]+a[i];
+}
+void psum2(float a[],float p[],long n)
+{
+    long i;
+    p[0]=a[0];
+    for(i=1;i<n-1;i+=2){
+        float mid_val=p[i-1]+a[i];
+        p[i] =mid_val;
+        p[i+1] =mid_val +a[i+1];
+    }
+    /*For even n,finish remaining element*/
+    if(i<n)
+        p[i]=p[i-1]+a[i];
+}
+```
+
+psum2 虽然看起来更加复杂，但是却需要更少的指令循环，效率更高。如果绘制两个函数指令循环数与集合数（n 的大小）的关系，可以得到 psum1 的指令循环数可以近似为 368 + 9n，而 psum2 则为 368 + 6n，可得 psum1 的 CPE 为 9，而 psum2 的 CPE 为 6。上面这种方法也被称为 loop unrolling
+
+### Program Example
+
+
+
+### Eliminating Loop Inefficiencies
+
+如下面的两段程序
+
+```c
+void lower1(char*s)
+{
+    long i;
+    for(i=0;i<strlen(s);i++)
+        if(s[i]>='A'&&s[i]<='Z')
+            s[i]-=('A'-'a');
+}
+
+void lower2(char*s)
+{
+    long i;
+    long len= strlen(s);
+    for(i=0;i<len;i++)
+        if(s[i]>='A'&&s[i]<='Z')
+            s[i]-=('A'-'a');
+}
+```
+
+由于 lower2 避免了一些无谓的 strlen(s)，所以运行得更快。
+
+
+
+## 6 The Memory Hierarchy
+
+
+
+## 7 Linking
+
+Link 是一个将不同部分代码和数据集合为单个文件，然后载入内存和执行。
+
+### Compiler Drivers
+
+大多数编译系统提供了一个编译器驱动程序，可以根据需要调用预处理器、编译器、汇编器和链接器。已知两个文件 main.c 和 sum.c
+
+```c
+// main.c
+int sum(int *a, int n);
+int array[2] = {1, 2};
+int main(){
+    int val = sum(array, 2);
+    return val;
+}
+```
+
+```c
+// sum.c
+int sum(int *a, int n){
+    int i, s = 0;
+    for (i = 0; i< n;i++){
+        s += a[i];
+    }
+    return s;
+}
+```
+
+调用 gcc 命令来进行编译
+
+```sh
+gcc -Og -o prog main.c sum.c
+```
+
+```mermaid
+graph LR
+main.c --> main.o
+sum.c --> sum.o
+main.o --> Linker
+sum.o --> Linker
+Linker --> prog
+```
+
+.c 文件到 .o 文件经过三步
+
+```sh
+cpp [other arguments] main.c main.i
+cc1 main.i -Og [other arguments] -o main.s
+as [other arguments] -o main.o main.s
+```
+
+连接器为 ld，将 main.o 和 sum.o 以及必要的系统文件结合起来，创建二进制文件 prog
+
+```sh
+ld -o prog [system object files and args] main.o sum.o
+```
+
+
+
+### Static Linking
+
+静态链接器（如 Linux LD 程序）以可重定位目标文件和命令行参数的集合作为输入，并生成一个可以加载和运行的完全链接目标文件作为输出。输入可重定位的目标文件由各种代码和数据部分组成，其中每个部分都是一个连续的字节序列。指令在一节中，初始化的全局变量在另一节，未初始化的变量在另一节中。
+
+1. 符号解析：目标文件定义和引用符号，其中每个符号对应于函数、全局变量或静态变量（即用静态属性声明的任何 C 变量）。符号解析的目的是将每个符号引用与正确的符号定义相关联。
+2. 重新定位：编译器和汇编程序生成代码和数据部分。从地址 0 开始，链接器将这些部分与每个符号定义关联起来重新定位，然后修改对这些符号的所有引用，使它们指向这个内存位置。链接器盲目地使用汇编程序生成的详细指令执行这些重定位，称为重定位入口。
+
+注意，目标文件是字节块的集合，连接器将这些块连接起来。
+
+
+
+### Object Files
+
+目标文件有三种形式：
+
+*可重定位目标文件*：包含二进制代码和数据，可以在编译的时候与其它可重定位目标文件组合生成可执行目标文件
+
+*可执行目标文件*：包含可以直接被载入内存和执行的二进制代码和数据
+
+*共享目标文件*：特殊类型的可重定位目标文件，可以在加载时或者运行时动态载入内存和连接。
+
+目标文件有特定格式，不同系统都不同。Linux 系统会使用 ELF 格式。
+
+
+### Relocatable Object Files
+
+
+下表展示了一个典型的 ELF 可重定位目标文件
+
+| ELF header           |
+| -------------------- |
+| .text                |
+| .rodata              |
+| .data                |
+| .bss                 |
+| .symtab              |
+| .rel.text            |
+| .rel.data            |
+| .debug               |
+| .line                |
+| .strtab              |
+| Section header table |
+ELF header 开头是 16 字节的序列，描述了字节大小和系统字节排列方式（大小端），剩下的 ELF header 包含了允许连接器解释和翻译目标文件的信息，即 ELF header 的大小，目标文件类型，机器类型（如 x86-64），section header table 的文件偏移，入口的大小和数量。section header table 中描述了不同部分的大小和位置，包含了目标文件中每个部分的定长入口。
+
+.text 编译程序的机器码
+
+.rodata 只读的数据，如 printf 的格式字符串和 switch 的跳转表
+
+.data 初始化的全局和静态变量，本地变量保存在运行时栈中，不出现在 .data 或者 .bss 部分。
+
+.bss 未初始化的全局和静态变量，以及任何初始化为零的全局或静态变量。这个部分不会占用目标文件中的实际空间，只是占位符，区分初始化和未初始化是为了空间效率。
+
+.symtab 符号表包含了程序中定义和索引的函数和全局变量信息
+
+.rel.text .text 部分的位置集合，这些位置在连接器结合其它文件时会被修改。一般来说，任意调用外部函数或者索引一个全局变量的指令会需要修改。而调用本地函数则不需要修改
+
+.rel.data 由模块引用或定义的任何全局变量的重定位信息。通常，任何初始值为全局变量或外部定义函数地址的初始化全局变量都需要修改。
+
+...
+
+
+### Symbol Resolution
+
+
+
+>c++ 中有函数重载的概念，在编译器中这些名字相同， 参数列表不同的函数会被编码成独一无二的名字，这个过程称为 mangling。
+
+
+编译时，编译器将每个全局符号导出进汇编器，或强或弱，汇编程序在可重定位目标文件的符号表中隐含地对此信息进行编码。函数和初始化的全局变量获得强符号。未初始化的全局变量会得到弱符号。对于强符号和弱符号的概念，Linux 链接器使用以下规则来处理重复的符号名称：
+
++ 多个同名的强符号是不被允许的
++ 存在同名的一个强符号和多个弱符号，选择强符号
++ 存在多个同名弱符号，任意选择一个弱符号
+
+第二条和第三条会导致一些隐藏的运行时 bug，特别是重复的符号定义为不同的类型，如 foo1.c 中定义了一个全局变量
+```c
+int x = 10;
+int main(){
+	f();
+}
+```
+
+foo2.c 中定义了一个同名的全局变量（未初始化），但是类型为 double
+
+```c
+double x;
+void f(){
+	x = -0.0;
+}
+```
+
+int 类型的 x 会覆盖 double 类型，从而在 f 中会引发错误。
+
+
+目前，我们一直假设连接器读取可重定位目标文件集合，将它们连接起来输出为目标可执行文件。实际上，所有的编译系统提供了打包静态库单文件相关目标模块的机制。在构建可执行文件时，连接器只复制库中被应用程序引用的的目标模块。c 中有许多静态库，如 libc.a 中定义了标准 I/O，字符串处理等函数。
+
+下面这个指令会将 libc.o 中所有的标准函数连接到可执行文件中
+
+```sh
+gcc main.c /usr/lib/libc.o
+```
+
+这样有一些不好的地方，如太占用空间，同时编译时间会很长，可以采取下面的方法
+
+```sh
+gcc main.c /usr/lib/printf.o /usr/lib/scanf.o
+```
+
+但是这种方法需要程序员清楚了解该连接哪些目标模块。
+
+静态库可以用于解决上面这两种方法的缺点
+
+```sh
+gcc main.c /usr/lib/libm.a /usr/lib/libc.a
+```
+
+这样在连接时，连接器只会复制被引用的目标模块，减少可执行文件的体积，同时便于程序员处理。
+
+为了创建静态库，可以使用 ar
+```sh
+gcc -c addvec.c multvec.c
+ar rcs libvector.a addvec.o multvec.o
+```
+
+为了使用这个静态库
+```sh
+gcc -c main2.c
+gcc -static -o prog2c main2.o ./libvector.a
+```
+
+>注意静态库需要放在 .c 文件后面（命令行的末尾）
+
+
+### Relocation
+
+
+### Dynamic Linking with Shared Libraries
+
+
+虽然静态库可以解决很多问题，但是存在一些明显的缺陷。静态库和所有的软件一样需要维护和更新，如果程序员希望使用最新版本的库，那么可能需要重新连接。另一个问题是几乎所有的 C 程序都使用标准 I/O，每个运行进程的 text 段中这些函数的代码会重复，这样会产生浪费。
+
+共享库可以解决静态库的确定，共享库是可以在运行时或者加载时载入内存并且连接内存中的程序的目标模块，这一过程也被称为动态链接。共享库在 Linux 中一般为 .so 文件，在 Windows 中为 .dll 文件。
+
+创建共享库的命令
+
+```sh
+gcc -shared -fpic -o libvector.so addvec.c multvec.c
+```
+
+`-fpic` 选项告诉编译器生成位置独立的代码，`-shared` 选项告诉链接器创建共享库。使用共享库的命令如下
+```sh
+gcc -o prog2l main2.c ./libvector.so
+```
+
+
+...
+
+
+## 8 Exceptional Control Flow
+
+759
+
+
+
+## 9 Virtual Memory
+
+### Physical and Virtual Addressing
+
+计算机系统的主存可以认为是一个 M 个连续的字节块，每个字节有着独特的物理地址（PA），第一个字节的地址为 0，下一个字节的地址为 1，以此类推。早期的电脑使用物理寻址，数字信号处理器、嵌入式微控制器和 Cray 超级计算机都沿用这一设计。但是现代处理器使用虚拟地址寻址，如下图所示
+
+![image-20240429123857740](https://cdn.jsdelivr.net/gh/Xiang-M-J/MyPic@img/img/image-20240429123857740.png)
+
+虚拟寻址时，CPU 会生成一个虚拟地址，然后转换为合适的物体地址送入内存，负责转换的硬件称为 MMU。
+
+
+### Address Spaces
+
+地址空间是一个非负整数地址的有序集合，n 位的 CPU 可以产生 $N=2^n$ 个虚拟地址，现代处理器 n 一般取 32 或 64。一个系统也会有一个物理地址空间对应于 M 个物理内存。
+
+
+### VM as a Tool for Caching
+
+硬盘上的数据会被分成块，作为硬盘和内存的传输单元，VM 系统通过将虚拟内存拆分成固定大小块（虚拟页）实现。每个虚拟页的大小为 $P=2^p$，类似地，物理内存被拆分为物理页，大小也为 P 字节，物理页也被称为页帧。
+
+任何时间点，虚拟页的集合被分为三个不相交的子集
+
++ *未分配的*：虚拟机系统尚未分配(或创建)的页面。未分配的块没有与它们关联的任何数据，因此不占用磁盘上的任何空间。
++ *缓存*：当前缓存在物理内存中的已分配页面。
++ *不缓存*：未缓存在物理内存中的已分配页面
+
+
+为了区分内存架构中的不同缓存，使用 SRAM 表示 L1，L2 和 L3，DRAM 表示缓存内存中的虚拟页的虚拟系统缓存。SRAM 比 DRAM 快十倍，而 DRAM 比硬盘快大约 100000 倍。因此，与SRAM缓存中的错误相比，DRAM缓存中的错误是非常耗时的，因为DRAM缓存错误是由硬盘提供的。
+
+由于很大的丢失代价和访问第一个字节的开销，虚拟页面往往很大，通常为 4KB 到 2MB。由于很大的丢失代价，DRAM缓存是完全关联的；也就是说，任何虚拟页都可以放置在任何物理页中。对于错误的替换策略也更重要，因为替换错误的虚拟页面所带来的损失非常大。操作系统对 DRAM 缓存使用的替换算法比硬件对 SRAM 缓存使用的替换算法复杂得多。最后，由于硬盘的访问时间很长，DRAM缓存总是使用回写（延迟更新内存）而不是透写（同时更新缓存和内存）。
+
+>DRAM 缓存丢失被称为 page fault
+
+
+
+## 10 System-Level I/O
+
+
+### Unix I/O
+
+一个 Linux 文件是 m 个字节的序列，所有的 I/O 设备，如网络、硬盘和终端都被建模成文件，所有输入输出都以读写对应文件的方式执行。
+
+
+### Files
+
+
+*常规文件*：文本文件，二进制文件
+
+*目录*：由一组链接组成的文件，每个链接指向一个文件的文件名
+
+*socket*：通过网络与其它进程通信
+
+其它还有管道、符号链接等。
+
+
+### Opening and Closing Files
+
+
+调用 open 函数来打开文件或者创建文件
+
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+int open(char *filename, int flags, mode_t mode);  // -1 表示错误
+```
+
+例如，读取一个已经存在的文件
+
+```c
+fd = Open("foo.txt", O_RDONLY, 0);
+```
+
+
+
+## 11 Network Programming
+
+
+### The Client-Server Programming Model
+
+每个网络应用基于 client-server 模型，一个应用包含了一个服务器进程和若干个客户端进程，一个服务器管理一些资源，通过操作资源为它的客户端提供一些服务。
+
+
+
+12 

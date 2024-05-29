@@ -320,8 +320,6 @@ Regex rgx = new Regex(pattern);
 string result = rgx.Replace(input, replacement);
 ```
 
-
-
 # WPF 
 
 >  基于 WPF 对 CSharp 进行学习
@@ -487,6 +485,43 @@ public partial class MainWindow : FluentWindow
 [reactiveui](https://github.com/reactiveui/reactiveui) :star: 7.9k :arrow_down: 1.3M 
 
 ReactiveUI 是一个可组合的、跨平台的模型-视图-视图模型框架，受到了函数式响应式编程的启发，是一种范式，从用户界面中抽象出可变状态，并在一个可读的地方表达围绕特性的想法，从而提高应用程序的可测试性。
+
+
+
+## MVVM
+
+> MVVM 的实现可以使用 CommunityToolkit.Mvvm，可以 [MVVM 工具包简介 - Community Toolkits for .NET | Microsoft Learn](https://learn.microsoft.com/zh-cn/dotnet/communitytoolkit/mvvm/)。
+
+MVVM 模式是一种开发应用的模式，包含三个核心部分：模型（model）、视图（view）和视图模型（view model），三者关系如下图所示
+
+![MVVM](https://learn.microsoft.com/en-us/dotnet/architecture/maui/media/mvvm-pattern.png)
+
+使用 MVVM 的好处
+
++ 如果现有的模型实现封装了现有的业务逻辑，那么更改它可能很困难或有风险。在此场景中，视图模型充当模型类的适配器，并阻止您对模型代码进行重大更改。
++ 开发人员可以不使用视图为视图模型和模型创建单元测试。视图模型的单元测试可以执行与视图使用的完全相同的功能。
++ 如果视图完全用 XAML 或 C # 实现，应用程序 UI 可以重新设计，而不需要触及视图模型和模型代码。因此，视图的新版本应该与现有的视图模型一起工作。
++ 设计人员和开发人员可以在开发期间独立并发地处理他们的组件。设计人员可以关注视图，而开发人员可以处理视图模型和模型组件。
+
+### View
+
+view 负责定义结构，布局和用户在屏幕上看到的外观，一般 view 通过 xaml 定义。确保 view model 负责定义影响 view 显示的某些方面的逻辑状态更改，例如命令是否可用，或操作挂起的指示。通过绑定到 view model 中的属性来启用和禁用 UI 元素，而不是通过注释来启用和禁用。
+
+### View Model
+
+view model 定义 view 可以绑定到的属性和命令，并通过通知事件告知 view 任何状态更改。view model 提供的属性和命令定义了 UI 提供的功能，但是 view 决定了如何显示该功能。多平台应用程序应该保持 UI 线程畅通，以提高用户对性能的感知。因此，在视图模型中，对 I/O 操作使用异步方法并引发事件以异步通知视图属性更改。
+
+视图模型还负责协调视图与所需的任何模型类的交互。视图模型和模型类之间通常存在一对多的关系。视图模型可以选择将模型类直接公开给视图，以便视图中的控件可以直接绑定到它们。在这种情况下，需要将模型类设计为支持数据绑定和更改通知事件。当视图模型提供的数据格式不满足视图的需要时，可以使用转换器，实现视图模型和视图之间的独立数据转换层。
+
+为了实现视图模型和视图之间的双向绑定，视图模型的属性必须触发 `PropertyChanged` 事件。具体为实现 `INotifyPropertyChanged` 接口，当属性改变时，触发 `PropertyChanged` 事件。对于集合，提供了视图友好的 `ObservableCollection<T>` ，这个集合实现了集合改变通知，避免了需要为集合实现 `INotifyCollectionChanged` 接口。
+
+### Model
+
+模型类是封装应用程序数据的非可视化类。因此，可以认为该模型表示应用程序的域模型，该模型通常包括一个数据模型以及业务和验证逻辑。模型对象的示例包括数据传输对象(DTO)、普通的旧 CLR 对象(POCO)以及生成的实体和代理对象。
+
+
+
+
 
 
 
@@ -1254,6 +1289,42 @@ var a = ((IListSource)dataSet).GetList();
 
 
 ## 演练
+
+
+### 使用 ListView 实现类似 Excel 的效果
+
+下面的 folderGrid 是一个 ListView 控件
+
+```csharp
+// 创建一个 GridView
+GridView gridView = new GridView();
+
+// 动态添加列
+for (int i = 1; i <= 5; i++)
+{
+	// 创建一个列
+	GridViewColumn column = new GridViewColumn();
+	column.Header = "Column " + i.ToString();
+	column.DisplayMemberBinding = new System.Windows.Data.Binding("Column" + i.ToString()); // 绑定列的数据
+	gridView.Columns.Add(column);
+}
+
+// 将 GridView 设置为 ListView 的 View
+folderGrid.View = gridView;
+
+// 添加一些示例数据
+for (int i = 1; i <= 10; i++)
+{
+	// 创建一个 ListViewItem
+	ListViewItem item = new ListViewItem();
+
+	// 添加示例数据
+	item.Content = new { Column1 = "Data " + i, Column2 = "Data " + (i * 2), Column3 = "Data " + (i * 3), Column4 = "Data " + (i * 4), Column5 = "Data " + (i * 5) };
+
+	// 将 ListViewItem 添加到 ListView 中
+	folderGrid.Items.Add(item);
+}
+```
 
 ### 使用 Grid 动态布局
 

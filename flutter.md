@@ -29,6 +29,24 @@ flutter 构建 App，在项目路径下执行
 flutter build apk
 ```
 
+flutter 编译 web 应用
+
+```sh
+flutter build web
+```
+
+使用 --web-renderer 选择使用 html 或是 canvaskit 渲染
+
+```sh
+flutter build web --web-renderer html
+```
+
+在默认选项下以发行模式构建
+
+```sh
+flutter build web --release
+```
+
 
 
  

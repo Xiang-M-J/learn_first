@@ -329,6 +329,8 @@ var constantList = const [1, 2, 3];   // const 使列表为常量，不可变（
 
 ```
 
+> dart 中直接赋值为浅复制，只会生成引用，深复制需要使用 List.from() 方法实现
+
 
 
 #### Sets
