@@ -2019,7 +2019,7 @@ func addAlbum(alb Album) (int64, error) {
 
 
 
-### 开发 Restful API
+### 使用 Gin 开发 Restful API
 
 
 

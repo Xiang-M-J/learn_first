@@ -125,7 +125,7 @@ wsl --import docker-desktop E:\wsl\docker\docker-desktop E:\docker\docker-deskto
 
 
 
-## docker 基本知识
+## Docker 基本知识
 
 [Docker overview | Docker Docs](https://docs.docker.com/get-started/overview/)
 
@@ -578,9 +578,16 @@ docker in action
 
 
 
+### 镜像名base、runtime和devel
+
+在搜索镜像时，有时会出现以 base、runtime 和 devel 为后缀的镜像名，以 cuda 为例
+
+**base**：从 cuda 9.0 开始，base 版本包含了部署预构建 cuda 应用程序的最低限度（libcudart）。如果用户需要自己安装 cuda 包，则可以选择使用这个版本，但如果想省事儿，则不建议使用该版本。
+**runtime**：在 base 版本中添加了 cuda 工具包中的所有共享库。如果使用多个cuda库的预构建应用程序，可使用此版本。但是如果想借助 cuda 中的头文件对自己的工程进行编译，则会出现找不到文件的错误。
+**devel**：在 runtime 中添加编译器工具链，测试工具，头文件和静态库，使用此版本可以从源代码编译 cuda 应用程序。
 
 
-## docker 使用
+## Docker 使用
 
 ### vscode 使用 docker
 
@@ -643,7 +650,7 @@ root@df63863c8660:/#
 
 
 
-## 出现的问题
+## Docker环境下出现的问题
 
 > 在 docker 环境下执行 apt-get install 出现下面的错误：
 

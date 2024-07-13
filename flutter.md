@@ -6,6 +6,18 @@ API文档：https://api.flutter.dev/flutter
 
 > flutter json 转 model，使用 json_to_model
 
+
+
+**flutter 构建 apk**
+
+```cmd
+flutter build apk
+```
+
+> 如果发现构建的 apk 在 debug 模式下能用，但是在 release 模式下不能用，如果 app 中使用了动态链接库，那么很有可能是因为 release 模式的 apk 没有加上动态链接库，需要检查一下。
+
+
+
 ## 入门知识
 
 ### 基本命令

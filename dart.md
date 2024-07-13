@@ -1153,6 +1153,96 @@ void main() async {
 }
 ```
 
+在使用 isolate 时，如果报错 The "instance" getter on the ServicesBinding binding mixin is only available once that binding has been initialized. 可能是由于在异步函数中使用了 rootBundle 读取文件。
+
+
+
+**如何正确使用 compute 实现异步**
+
+有两种方式可以使用
+
+1. 直接在类外定义函数，如下所示
+
+这种方式的 compute 函数 isPrime 和 compute 调用的函数 _calculate 都需要放在 UI 组件定义的外面，即全局函数。使用时直接调用 compute 函数 isPrime 即可
+
+```dart
+Future<bool> isPrime(int value) {
+  return compute(_calculate, value);
+}
+
+bool _calculate(int value) {
+  if (value == 1) {
+    return false;
+  }
+  for (int i = 2; i < value; ++i) {
+    if (value % i == 0) {
+      return false;
+    }
+  }
+  return true;
+}
+class MyApp extends StatelessWidget {
+  //...
+}
+
+class MyHomePage extends StatefulWidget {
+  // ...
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  Future<void> _incrementCounter() async {
+    bool istrue = await isPrime(13217);
+    print(istrue);
+  }
+  @override
+  Widget build(BuildContext context) {
+      // ...
+  }
+}
+```
+
+
+
+2. 有些操作比较复杂，需要在类中完成，此时需要将 compute 函数也定义到类中
+
+```dart
+class SR{
+  int inital = 100;
+  Future<int> calResult(int a){
+      return compute(cal, a);
+  }
+  int cal(int n){
+    int sum = inital;
+    for (var i = 0; i < n; i++) {
+      sum += i;
+    }
+    return sum;
+  }
+}
+class MyApp extends StatelessWidget {
+  //...
+}
+
+class MyHomePage extends StatefulWidget {
+  // ...
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  SR sr = SR();
+
+  Future<void> _incrementCounter() async {
+    int sum = await sr.calResult(100);
+    print(sum);
+  }
+  @override
+  Widget build(BuildContext context) {
+      // ...
+  }
+}
+```
+
+
+
 
 
 ## 文件I/O
