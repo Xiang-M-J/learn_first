@@ -1131,8 +1131,14 @@ Future<String> _readFileAsync() async {
 使用异步方法可以让文件 I/O 操作时，其它代码（如事件处理等）也能继续执行。
 
 
+### Isolate
 
 Dart 代码并不在多个线程上运行，取而代之的是它们会在 isolate 内运行。每一个 isolate 会有自己的堆内存，从而确保 isolate 之间互相隔离，无法互相访问状态。由于这样的实现并不会共享状态，所以互斥锁和其他锁以及竞争条件不会在 Dart 中出现。也就是说，isolate 并不能完全防止竞争条件。
+
+
+> [!NOTE]
+> isolate 中似乎不支持使用平台插件，如 flutter_sound 的录音功能
+
 
 在使用 isolate 时，你的 Dart 代码可以在同一时刻进行多个独立的任务，并且使用可用的处理器核心。 Isolate 与线程和进程近似，但是每个 isolate 都拥有独立的内存，以及运行事件循环的独立线程。
 
@@ -1203,7 +1209,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
 
 
-2. 有些操作比较复杂，需要在类中完成，此时需要将 compute 函数也定义到类中
+2. 有些操作比较复杂，需要定义一个类，此时需要将 compute 函数也定义到类中
 
 ```dart
 class SR{
@@ -1238,6 +1244,36 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
       // ...
   }
+}
+```
+
+
+
+## 流
+
+流的功能有很多，比如可以将一些异步任务放在流中，然后顺序执行，具体操作如下
+
+```dart
+StreamController<Future<void> Function()>? controller;   // 定义在此处，可以在多个函数中调用 controller，还可以重复运行
+Future<void> run() async {  
+  controller = StreamController();  
+  executeTasks(controller!.stream);  
+  for(int i = 10; i<20; i++){  
+    List<double> data = List<double>.generate(500*i, (m)=>sin(i*m));
+    controller?.add(() async{  
+      extensiveTask(data);  
+    });  
+  }  
+  await controller?.close();  
+}
+void extensiveTask(List<double> data){  
+  // some extensive task
+}  
+Future<void> executeTasks(Stream<Future<void> Function()> taskStream) async {  
+  await for (var task in taskStream){  
+    await task();  
+  }  
+  print("All tasks completed");  
 }
 ```
 

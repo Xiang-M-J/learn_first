@@ -16,6 +16,11 @@ flutter build apk
 
 > 如果发现构建的 apk 在 debug 模式下能用，但是在 release 模式下不能用，如果 app 中使用了动态链接库，那么很有可能是因为 release 模式的 apk 没有加上动态链接库，需要检查一下。
 
+如果有多个入口文件，可以用如下方式编译apk
+
+```cmd
+flutter build apk -t lib\main_1.dart
+```
 
 
 ## 入门知识
