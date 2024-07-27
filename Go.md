@@ -2368,6 +2368,8 @@ hello xmj!
 
 ### 分布式缓存
 
+[7天用Go从零实现分布式缓存GeeCache | 极客兔兔 (geektutu.com)](https://geektutu.com/post/geecache.html)
+
 #### LRU缓存
 
 LRU（最近最少使用）的实现可以通过维护一个队列，如果某条记录被访问了就移动到队尾，这样队首就是最近最少访问的数据，淘汰这条数据即可。
@@ -2774,3 +2776,54 @@ func (m *Map) Get(key string) string {
 
 
 
+#### 分布式节点
+
+首先抽象出一个接口
+
+```go
+// peers.go
+package GeeCache  
+  
+type PeerPicker interface {  
+    PickPeer(key string) (peer PeerGetter, ok bool)  
+}  
+  
+type PeerGetter interface {  
+    Get(group string, key string) ([]byte, error)   
+    // 从对应的group查找缓存值
+}
+```
+
+为 `HTTPPool` 实现客户端的功能，创建具体的 HTTP 客户端类 `httpGetter`，实现 PeerGetter 接口。
+
+```go
+// http.go
+type httpGetter struct {  
+    basePath string  
+}  
+  
+func (h *httpGetter) Get(group string, key string) ([]byte, error) {  
+    u := fmt.Sprintf("%s%s?key=%s", h.basePath, group, key)  
+    resp, err := http.Get(u)  
+    if err != nil {  
+       return nil, err  
+    }  
+    defer resp.Body.Close()  
+  
+    if resp.StatusCode != http.StatusOK {  
+       return nil, fmt.Errorf("bad status: %s", resp.Status)  
+    }  
+    body, err := io.ReadAll(resp.Body)  
+    if err != nil {  
+       return nil, fmt.Errorf("ReadAll: %s", err)  
+    }  
+    return body, nil  
+}
+```
+
+
+为 HTTPPool 添加节点选择的功能
+
+```go
+
+```
