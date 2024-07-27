@@ -86,7 +86,7 @@ p := new(SyncedBuffer)  // type *SyncedBuffer
 var v SyncedBuffer      // type  SyncedBuffer
 ```
 
-make 与 new 不同，只会创建 slices、maps 和 channels，会返回一个初始化空间
+make 与 new 不同，只用于创建 slices、maps 和 channels，会返回一个初始化空间
 
 ```go
 package main
@@ -2119,6 +2119,7 @@ curl http://localhost:8080/albums
 
 ```go
 // postAlbums adds an album from JSON received in the request body.
+// gin.Context 为上下文，提供一些服务
 func postAlbums(c *gin.Context) {
     var newAlbum album
 
@@ -2363,4 +2364,413 @@ Hugo Static Site Generator v0.9 -- HEAD
 PS> .\main.exe hello --color=32 --author="xmj"
 hello xmj!
 ```
+
+
+### 分布式缓存
+
+#### LRU缓存
+
+LRU（最近最少使用）的实现可以通过维护一个队列，如果某条记录被访问了就移动到队尾，这样队首就是最近最少访问的数据，淘汰这条数据即可。
+
+在 GO 中可以通过双向链表来实现这一队列，代码如下
+
+```go
+// lru/lru.go
+package lru  
+  
+import "container/list"  
+  
+type Cache struct {  
+    maxBytes  int64  
+    nbytes    int64  
+    ll        *list.List  
+    cache     map[string]*list.Element  
+    OnEvicted func(key string, value Value)  
+}  
+  
+type entry struct {  
+    key   string  
+    value Value  
+}  
+  
+type Value interface {  
+    Len() int  
+}
+
+// 获取缓存的队列长度
+func (c *Cache) Len() int {  
+    return c.ll.Len()  
+}
+```
+
+除此之外，还需添加初始化函数
+
+```go
+func New(maxBytes int64, onEvicted func(string2 string, value Value)) *Cache {  
+    return &Cache{  
+       maxBytes:  maxBytes,  
+       ll:        list.New(),  
+       cache:     make(map[string]*list.Element),  
+       OnEvicted: onEvicted,  
+    }  
+}
+```
+
+之后添加查找功能
+
+```go
+func (c *Cache) Get(key string) (value Value, ok bool) {  
+    if ele, ok := c.cache[key]; ok {  
+       c.ll.MoveToFront(ele)  
+       kv := ele.Value.(*entry)  
+       return kv.value, true  
+    }  
+    return  
+}
+```
+
+删除功能
+
+```go
+func (c *Cache) RemoveOldest() {  
+    ele := c.ll.Back() // 获取队首节点  
+    if ele != nil {  
+       c.ll.Remove(ele)         // 删除节点  
+       kv := ele.Value.(*entry) // 获取键值对  
+       delete(c.cache, kv.key)  // 从缓存中删除键值对  
+       c.nbytes -= int64(len(kv.key)) + int64(kv.value.Len())  
+       if c.OnEvicted != nil {  
+          c.OnEvicted(kv.key, kv.value)  
+       }  
+    }  
+}
+```
+
+
+添加功能
+
+```go
+func (c *Cache) Add(key string, value Value) {  
+    if ele, ok := c.cache[key]; ok {  
+       c.ll.MoveToFront(ele)  
+       kv := ele.Value.(*entry)  
+       c.nbytes += int64(value.Len()) - int64(kv.value.Len())  
+       kv.value = value  
+    } else {  
+       ele := c.ll.PushFront(&entry{key, value}) // PushFront 插入新数据  
+       c.cache[key] = ele  
+       c.nbytes += int64(len(key)) + int64(value.Len())  
+    }  
+    for c.maxBytes != 0 && c.maxBytes < c.nbytes {  
+       c.RemoveOldest()  
+    }  
+}
+```
+
+创建一个test文件
+
+```go
+// lru/lru_test.go
+package lru  
+  
+import "testing"  
+  
+type String string   // 因为需要为 string 类型额外实现方法，所以新定义一个类型，避免修改源码  
+  
+func (s String) Len() int {  
+    return len(s)  
+}  
+  
+func TestCache_Get(t *testing.T) {  
+    lru := New(int64(0), nil)  
+    lru.Add("key1", String("1234"))  
+    if v, ok := lru.Get("key1"); !ok || string(v.(String)) != "1234" {  
+       t.Error("key1 should be 1234")  
+    }  
+    if _, ok := lru.Get("key2"); ok {  
+       t.Error("key2 miss in cache")  
+    }  
+}
+```
+
+
+
+#### 单机并发缓存
+
+为了支持并发，使用 sync.Mutex 封装 LRU 的几个方法，使之支持并发的读写。先抽象出一个只读数据结构 ByteView 用于表示缓存值
+
+```go
+// byteview.go
+
+package GeeCache  
+  
+type ByteView struct {  
+    b []byte  
+}  
+  
+func (v ByteView) Len() int {  
+    return len(v.b)  
+}  
+  
+func cloneBytes(b []byte) []byte {  
+    c := make([]byte, len(b))  
+    copy(c, b)  
+    return c  
+}  
+  
+func (v ByteView) ByteSlice() []byte {  
+    return cloneBytes(v.b)  
+}  
+  
+func (v ByteView) String() string {  
+    return string(v.b)  
+}
+```
+
+
+接下来为 lru.Cache 添加并发特性，即在进行操作加上互斥锁
+
+```go
+// cache.go
+
+package GeeCache  
+  
+import (  
+    "GeeCache/lru"  
+    "sync")  
+  
+type cache struct {  
+    mu         sync.Mutex  
+    lru        *lru.Cache  
+    cacheBytes int64  
+}  
+  
+func (c *cache) add(key string, value ByteView) {  
+    c.mu.Lock()  
+    defer c.mu.Unlock()  
+    if c.lru == nil {  
+       c.lru = lru.New(c.cacheBytes, nil)  
+    }  
+    c.lru.Add(key, value)  
+}  
+  
+func (c *cache) get(key string) (value ByteView, ok bool) {  
+    c.mu.Lock()  
+    defer c.mu.Unlock()  
+    if c.lru == nil {  
+       return  
+    }  
+    if value, ok := c.lru.Get(key); ok {  
+       return value.(ByteView), true  
+    }  
+    return  
+}
+```
+
+接下来添加与用户的交互结构 Group，首先添加一个回调函数，该函数可用于从数据源获取数据
+
+```go
+// geecache.go
+
+package GeeCache  
+  
+type Getter interface {  
+    Get(string) ([] byte, bool)  
+}  
+  
+type GetterFunc func(string) ([]byte, bool)  
+  
+func (f GetterFunc) Get(key string) ([]byte, bool) {  
+    return f(key)  
+}
+```
+
+接下来定义 Group，Group 可以看成是一个缓存的命名空间
+
+```go
+type Group struct {  
+    name      string  
+    getter    Getter  
+    mainCache cache  
+}  
+  
+var (  
+    mu     sync.RWMutex  
+    groups = make(map[string]*Group)  
+)  
+  
+func NewGroup(name string, cacheBytes int64, getter Getter) *Group {  
+    if getter == nil {  
+       panic("nil getter")  
+    }
+    mu.Lock()  
+    defer mu.Unlock()  
+    g := &Group{  
+       name:      name,  
+       getter:    getter,  
+       mainCache: cache{cacheBytes: cacheBytes},  
+    }  
+    groups[name] = g  
+    return g  
+}  
+  
+func GetGroup(name string) *Group {  
+    mu.RLock()  
+    defer mu.RUnlock()  
+    g := groups[name]  
+    return g  
+}  
+  
+func (g *Group) Get(key string) (ByteView, bool) {  
+    if key == "" {  
+       return ByteView{}, false  
+    }  
+    // mainCache 中存在对应的缓存，则直接返回  
+    if v, ok := g.mainCache.get(key); ok {  
+       log.Printf("hit")  
+       return v, true  
+    }  
+    // 不存在缓存，则通过用户回调函数来获取数据  
+    return g.load(key)  
+}  
+  
+func (g *Group) load(key string) (value ByteView, ok bool) {  
+    return g.getLocally(key)  
+}  
+  
+func (g *Group) getLocally(key string) (ByteView, bool) {  
+    bytes, err := g.getter.Get(key)  
+    if err != true {  
+       return ByteView{}, false  
+    }  
+    value := ByteView{b: cloneBytes(bytes)}  
+    g.populateCache(key, value)  
+    return value, true  
+}  
+  
+func (g *Group) populateCache(key string, b ByteView) {  
+    g.mainCache.add(key, b)  
+}
+```
+
+
+#### HTTP 服务端
+
+分布式缓存需要实现节点间通信，一种方法是建立基于 HTTP 的通信机制
+
+```go
+package GeeCache  
+  
+import (  
+    "log"  
+    "net/http"    "strings")  
+  
+const defaultBasePath = "/_geecache/"  
+  
+type HTTPPool struct {  
+    self     string  
+    basePath string  
+}  
+  
+func NewHTTPPool(self string) *HTTPPool {  
+    return &HTTPPool{self: self, basePath: defaultBasePath}  
+}  
+  
+func (p *HTTPPool) Log(format string, args ...interface{}) {  
+    log.Printf(p.self+format, args...)  
+}  
+  
+func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {  
+    if !strings.HasPrefix(r.URL.Path, p.basePath) {  
+       panic("HTTPPool ServeHTTP: invalid path: " + r.URL.Path)  
+    }  
+    p.Log("%s %s", r.Method, r.URL.Path)  
+    parts := strings.SplitN(r.URL.Path[len(p.basePath):], "/", 2)  
+    if len(parts) != 2 {  
+       http.Error(w, "bad request", http.StatusBadRequest)  
+       return  
+    }  
+    groupName := parts[0]  
+    key := parts[1]  
+  
+    group := GetGroup(groupName)  
+    if group == nil {  
+       http.Error(w, "group not found", http.StatusNotFound)  
+       return  
+    }  
+    view, err := group.Get(key)  
+    if err != true {  
+       http.Error(w, "group not found", http.StatusInternalServerError)  
+       return  
+    }  
+  
+    w.Header().Set("Content-Type", "application/octet-stream")  
+    w.Write(view.ByteSlice())  
+}
+```
+
+
+#### 一致性哈希
+
+一致哈希的作用：先说哈希的作用，假设存在10个节点存储着数据，此时为了确定键对应的存储节点，可以计算键的哈希 hash(key)，再除以 10 得到的余数便可以确定节点。这种哈希存在一个问题，假如一个节点失效了，那么几乎所有缓存值对应的节点都发生了变化，即几乎所有缓存值都失效了。为了解决这一问题，采用一致性哈希算法。
+
+一致性哈希算法将 key 映射到 2^32 的空间中，将这个数字首尾相连，形成一个环。
+
+- 计算节点/机器(通常使用节点的名称、编号和 IP 地址)的哈希值，放置在环上。
+- 计算 key 的哈希值，放置在环上，顺时针寻找到的第一个节点，就是应选取的节点/机器。
+
+Go 中的实现
+
+```go
+package consistenthash  
+  
+import (  
+    "hash/crc32"  
+    "sort")  
+  
+type Hash func(data []byte) uint32  
+  
+type Map struct {  
+    hash     Hash  
+    replicas int  
+    keys     []int  
+    hashMap  map[int]string  
+}  
+  
+func New(replicas int, hash Hash) *Map {  
+    m := &Map{  
+       hash:     hash,  
+       replicas: replicas,  
+       hashMap:  make(map[int]string),  
+    }  
+    if m.hash == nil {  
+       m.hash = crc32.ChecksumIEEE  
+    }  
+    return m  
+}  
+  
+func (m *Map) Add(keys ...string) {  
+    for _, key := range keys {  
+       hash := int(m.hash([]byte(key)))  
+       m.keys = append(m.keys, hash)  
+       m.hashMap[hash] = key  
+    }  
+    sort.Ints(m.keys)  
+}  
+func (m *Map) Get(key string) string {  
+    if len(m.keys) == 0 {  
+       return ""  
+    }  
+  
+    hash := int(m.hash([]byte(key)))  
+    // Binary search for appropriate replica.  
+    idx := sort.Search(len(m.keys), func(i int) bool {  
+       return m.keys[i] >= hash  
+    })  
+  
+    return m.hashMap[m.keys[idx%len(m.keys)]]  
+}
+```
+
+
 
