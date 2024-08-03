@@ -1,9 +1,19 @@
 # Protobuf
 
+## 编译
+
+```sh
+git clone https://github.com/protocolbuffers/protobuf
+git submodule update --init --recursive
+```
+
+使用 cmake 配置项目，生成 libprotobuf, libprotoc, protoc
+
+
 
 > Protobuf 类似于 JSON，用于序列化数据，但是比 JSON 更小更快。Protobuf 可以生成本地语言绑定，只需要定义一次数据的结构，然后使用生成的特定源代码便可以轻松地在各种数据流和各种语言之间编写和读取结构化数据。
 
-Protobuf buffers 为数兆字节的数据提供序列格式，这个格式适用于短期网络交换和长期数据存储，Protobuf buffers 可以在现有数据不失效或无需更新代码的情况下使用新的信息进行扩展。Protobuf buffer 信息使用`.proto` 文件定义，下面是一个示例
+Protobuf buffers 为数兆字节的数据提供序列格式，这个格式适用于短期网络交换和长期数据存储，Protobuf buffers 可以在现有数据不失效或无需更新代码的情况下使用新的信息进行扩展。Protobuf buffer 信息使用 `.proto` 文件定义，下面是一个示例
 
 ```protobuf
 message Person {
@@ -269,22 +279,10 @@ service SearchService {
 
 ## C++实践
 
-在 C++ 中使用 protobuf，首先 clone protobuf 的源代码 [protocolbuffers/protobuf: Protocol Buffers](https://github.com/protocolbuffers/protobuf)，并且更新子模块仓库
-
-```powershell
-git clone https://github.com/protocolbuffers/protobuf.git
-git submodule update --init --recursive
-```
-
-使用 cmake-gui 配置生成项目，注意此处选择的编译平台需要和之后使用的平台对应。
-
-用 vs 打开生成后的项目，分别在 libprotobuf 和 protoc 这两个解决方案上右键生成
-
 
 > [!WARNING]
 >
 > 目前 C++ 的使用存在一些问题
-
 
 
 假设存在 `addressbook.proto`，文件内容为
