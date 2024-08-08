@@ -132,6 +132,24 @@ sudo apt-get update
 sudo apt-get -y install cuda
 ```
 
+如果安装完提示找不到 nvcc，需要修改 ~/.bashrc
+
+在  ~/.bashrc 末尾添加
+
+```
+# cuda
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64
+export PATH=$PATH:/usr/local/cuda/bin
+```
+
+保存后，使用
+
+```sh
+source ~/.bashrc
+```
+
+来刷新，这样就能找到nvcc了
+
 
 
 > 编译 kaldi 的 GPU 版本时报错 configure failed: CUDA 10_1 does not support c++ (g++-9). Only versions strictly older than 9.0 are supported. 
