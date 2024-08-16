@@ -8,3 +8,10 @@ programming
 qrcode
 TTS
 *.exe
+*.targets
+*.props
+/codes/trie/trienet/DemoApp/obj
+/codes/trie/trienet/SampleConsoleApp/obj
+/codes/trie/trienet/TrieNet.Test/bin
+/codes/trie/trienet/TrieNet.Test
+/codes/trie/trienet/TrieNet/obj
