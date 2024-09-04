@@ -1,4 +1,20 @@
+## 基本知识
+
+
+
 [Go Packages - Go Packages](https://pkg.go.dev/)
+
+### 基本命令
+
+
+**创建项目**
+
+创建一个 hello 项目
+
+```powershell
+go mod init hello
+```
+
 
 **执行文件**
 
@@ -12,6 +28,13 @@ go run hello.go
 go build hello.go & ./hello
 ```
 
+或者在项目中
+
+```powershell
+go build
+```
+
+
 **格式化文件**
 
 ```powershell
@@ -19,6 +42,9 @@ gofmt main.go
 ```
 
 该命令会直接输出格式化后的代码，可以先保存在临时文件中，再修改后缀名
+
+### 语法简介
+
 
 **注释**
 
@@ -53,6 +79,45 @@ func main()  {
 }
 ```
 
+
+### 跨平台编译
+
+默认 go build 的可执行文件都是当前操作系统可执行的文件，如果想在windows下编译一个linux下可执行文件，那需要怎么做呢？
+
+只需要指定目标操作系统的平台和处理器架构即可，例如Windows平台cmd下按如下方式指定环境变量。
+
+```
+SET CGO_ENABLED=0  // 禁用CGO
+SET GOOS=linux  // 目标平台是linux
+SET GOARCH=amd64  // 目标处理器架构是amd64
+```
+
+注意：如果你使用的是PowerShell终端，那么设置环境变量的语法为$ENV:CGO_ENABLED=0。
+
+然后再执行go build命令，得到的就是能够在Linux平台运行的可执行文件了。
+
+Mac 下编译 Linux 和 Windows平台 64位 可执行程序：
+
+```
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build
+```
+
+Linux 下编译 Mac 和 Windows 平台64位可执行程序：
+
+```
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build
+```
+
+Windows下编译Mac平台64位可执行程序：
+
+```
+SET CGO_ENABLED=0
+SET GOOS=darwin
+SET GOARCH=amd64
+go build
+```
 
 
 ## Go by Example
