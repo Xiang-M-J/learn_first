@@ -518,6 +518,11 @@ docker compose up -d
 
 ### 针对编程语言的指南
 
+
+[Language-specific guides | Docker Docs](https://docs.docker.com/guides/language/)
+
+[C++ | Docker Docs](https://docs.docker.com/guides/language/cpp/)
+
 [Node.js language-specific guide | Docker Docs](https://docs.docker.com/language/nodejs/)
 
 [Python language-specific guide | Docker Docs](https://docs.docker.com/language/python/)
@@ -646,7 +651,69 @@ root@df63863c8660:/#
 
 
 
+### 创建一个简单的 python 应用
 
+编写一个简单的python脚本
+
+```python
+import numpy as np
+x = np.random.randn(4, 1600)
+y = np.power(x, 2).sum(axis=-1)
+print(y)
+```
+
+下面编写 Dockerfile 文件
+
+```Dockerfile
+FROM docker.registry.cyou/library/python:3.8-slim
+RUN pip3 install numpy -i https://pypi.tuna.tsinghua.edu.cn/simple
+COPY . .
+CMD ["python", "main.py"]
+```
+
+其中 `FROM` 指明使用的基础镜像，这里使用了其它镜像源的版本，library 指的是官方版本。`RUN` 后面接需要执行的命令，`COPY` 则是将文件从源地址复制到目标地址，`.` 指当前路径下所有文件，`CMD` 执行 cmd 命令，该命令在启动容器时调用。
+
+构建镜像的命令为
+
+```sh
+docker build -t sim_py .
+```
+
+
+下面是一个官方的教程
+
+首先获取 git 仓库
+
+```sh
+git clone https://github.com/estebanx64/python-docker-example
+cd python-docker-example
+```
+
+初始化 docker
+
+```sh
+docker init
+```
+
+这会创建一些文件，其中需要修改 Dockerfile，删除第一行关于语法的设置（需要额外下载一些东西），设置镜像源和python版本
+
+```Dockerfile
+ARG PYTHON_VERSION=3.8
+FROM docker.registry.cyou/library/python:${PYTHON_VERSION}-slim as base
+```
+
+
+> [!NOTE]
+> 最好在 requirements.txt 的第一行添加 `-i https://pypi.tuna.tsinghua.edu.cn/simple`，否则很有可能失败
+> 
+
+构建命令
+
+```sh
+docker compose up --build
+```
+
+构建成功后，会显示 `Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)`，不要直接访问，需要访问 [localhost:8000](http://localhost:8000/)
 
 
 
