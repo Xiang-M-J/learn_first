@@ -23,7 +23,6 @@ uname -a		 // 内核版本
     start /w "" "Docker Desktop Installer.exe" install --installation-dir=D:\Docker
     ```
 
-    
 
 2. 进入设置，Docker Engine，配置镜像源。
 
@@ -153,46 +152,31 @@ docker run -i -t ubuntu /bin/bash
 6. 当您运行 exit 命令终止 /bin/bash 命令时，容器会停止，但不会被移除。您可以重新启动或删除它。
 
 
-
-
-
 ### docker 简介
 
 <img src="https://docs.docker.com/get-started/images/docker-architecture.webp" alt="docker-architecture" style="zoom: 50%;" />
 
 Docker 使用 client-server 架构。Docker client 与 Docker daemon（守护进程） 通信，后者完成构建、运行和分发 Docker 容器的繁重工作。Docker client 和 daemon 可以运行在同一个系统上，或者将 Docker client 连接到远程 Docker daemon。Docker client 和 daemon 使用REST API，通过UNIX 套接字或网络接口进行通信。另一个Docker client 是Docker Compose，处理由一组容器组成的应用程序。
 
-
-
 #### Docker daemon
 
 Docker daemon 监听 Docker API 请求，管理 Docker 对象如镜像、容器、网络等，Docker daemon 可以和其他 daemon 通信
 
-
-
 #### Docker client
 
-Docker client 是许多 Docker 用户与 Docker 交互的主要方式。当使用诸如 docker run 之类的命令时，客户端将这些命令发送给 Docker Daemon （dockerd），后者执行这些命令。docker 命令使用 docker API。Docker客户端可以与多个 daemon 通信。
-
-
+Docker client 是许多 Docker 用户与 Docker 交互的主要方式。当使用诸如 docker run 之类的命令时，客户端将这些命令发送给 Docker Daemon（dockerd），后者执行这些命令。docker 命令使用 docker API。Docker客户端可以与多个 daemon 通信。
 
 #### Docker Desktop
 
 Docker Desktop 是一个易于安装的应用程序，适用于Mac、Windows或Linux环境，能够构建和共享容器化应用程序和微服务。Docker Desktop包括Docker Daemon (dockerd)、Docker 客户端(Docker)、Docker Compose、Docker Content Trust、Kubernetes 和 Credential Helper。
 
-
-
 #### Docker registries
 
 Docker registries 存储 Docker Images。Docker Hub 是一个任何人都可以使用的公共仓库，默认情况下Docker会在Docker Hub上查找镜像，也可以在私人仓库中查找。
 
-
-
 #### Images
 
 镜像是一个只读模板，带有创建 Docker 容器的说明。通常，一个镜像基于另一个镜像，并进行一些额外的定制。例如，可以构建一个基于 ubuntu 镜像的镜像，但是安装 Apache web 服务器和其它应用程序，以及使应用程序运行所需的配置细节。可以创建自己的镜像，也可以只使用其他人创建并发布在仓库中的镜像。要构建自己的镜像，需要创建一个 Dockerfile，该文件使用简单的语法来定义创建和运行镜像所需的步骤。Dockerfile 中的每条指令都会在镜像中创建一个层。当你改变Dockerfile并重建镜像时，只有那些已经改变的层才会被重建。
-
-
 
 #### Containers
 
@@ -201,14 +185,12 @@ Docker registries 存储 Docker Images。Docker Hub 是一个任何人都可以�
 容器是一个隔离环境，容器不了解操作系统或文件。运行在 Docker Desktop 提供的环境中。容器包含代码运行所需的一切，包括基本操作系统。可以使用 Docker Desktop 来管理和操作容器。
 
 
-
 ### docker guide
 
 #### 创建容器
 
 **在 Docker Desktop 中创建容器**
 
-![](https://docs.docker.com/guides/walkthroughs/images/getting-started-setup.webp?w=500&border=true)
 
 1. Open Docker Desktop and select the search.
 2. Specify `docker/welcome-to-docker` in the search and then select **Run**.
@@ -224,7 +206,6 @@ Docker registries 存储 Docker Images。Docker Hub 是一个任何人都可以�
 运行镜像：[Run Docker Hub images | Docker Docs](https://docs.docker.com/guides/walkthroughs/run-hub-images/)
 
 运行多容器应用：[Run multi-container applications | Docker Docs](https://docs.docker.com/guides/walkthroughs/multi-container-apps/)
-
 
 
 #### 持续化容器数据
@@ -309,11 +290,6 @@ $ docker volume inspect todo-db
 ```
 
 
-
-
-
-
-
 #### 访问本地文件
 
 [Access a local folder from a container | Docker Docs](https://docs.docker.com/guides/walkthroughs/access-local-folder/)
@@ -329,8 +305,6 @@ todo-app:
 ```
 
 volumes 告诉 Compose 将本地文件夹 ./app 挂载到 todo-app 服务容器中的 /usr/src/app 中。这个特定的绑定挂载覆盖容器中 /usr/src/app 目录的静态内容，并创建开发容器。第二条指令 /usr/src/app/node_modules 阻止绑定挂载覆盖容器的node_modules目录，以保留容器中安装的包。
-
-
 
 [Use bind mounts | Docker Docs](https://docs.docker.com/get-started/06_bind_mounts/)
 
@@ -402,7 +376,6 @@ docker run -dp 127.0.0.1:3000:3000 \
 5. Select **Run**.
 
 
-
 #### 应用虚拟化
 
 当使用容器时，通常需要创建一个 Dockerfile 来定义您的镜像和 `compose.yaml` 以定义如何运行它。
@@ -433,14 +406,7 @@ docker compose up
 docker tag docker/welcome-to-docker YOUR-USERNAME/welcome-to-docker
 ```
 
-可以在 Docker Desktop 上传镜像
-
-![](https://docs.docker.com/guides/walkthroughs/images/getting-started-push.webp?border=true)
-
 [Share the application | Docker Docs](https://docs.docker.com/get-started/04_sharing_app/)
-
-
-
 
 
 #### Docker Compose
@@ -471,8 +437,6 @@ docker run -d \
   -e MYSQL_DATABASE=todos \
   mysql:8.0
 ```
-
-
 
 对应的 YAML 文件
 
@@ -505,7 +469,6 @@ volumes:
 ```
 
 
-
 编写好 compose.yaml 后，通过下面的命令执行应用：
 
 ```sh
@@ -513,7 +476,6 @@ docker compose up -d
 ```
 
 -d 表示后台执行
-
 
 
 ### 针对编程语言的指南
@@ -572,7 +534,6 @@ docker compose up -d
 [Suppress image vulnerabilities with VEX | Docker Docs](https://docs.docker.com/scout/guides/vex/)
 
 
-
 ### 资源
 
 docker in action
@@ -583,11 +544,11 @@ docker in action
 
 
 
-### 镜像名base、runtime和devel
+### 镜像名 base、runtime和devel
 
 在搜索镜像时，有时会出现以 base、runtime 和 devel 为后缀的镜像名，以 cuda 为例
 
-**base**：从 cuda 9.0 开始，base 版本包含了部署预构建 cuda 应用程序的最低限度（libcudart）。如果用户需要自己安装 cuda 包，则可以选择使用这个版本，但如果想省事儿，则不建议使用该版本。
+**base**：从 cuda 9.0 开始，base 版本包含了部署预构建 cuda 应用程序的最低限度（libcudart）。如果用户需要自己安装 cuda 包，则可以选择使用这个版本。
 **runtime**：在 base 版本中添加了 cuda 工具包中的所有共享库。如果使用多个cuda库的预构建应用程序，可使用此版本。但是如果想借助 cuda 中的头文件对自己的工程进行编译，则会出现找不到文件的错误。
 **devel**：在 runtime 中添加编译器工具链，测试工具，头文件和静态库，使用此版本可以从源代码编译 cuda 应用程序。
 
@@ -610,13 +571,7 @@ code .
 2. [Dev Containers - Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 3. [Docker - Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker)
 
-在侧边栏的 Docker 窗口中选择 IMAGES 下面的镜像，以下图为例
-
-![image-20240330161543001](https://img2.imgtp.com/2024/03/30/C4myOPvr.png)
-
-
-
-右键 1.15.4-gpu-py3，选择 run interactive，成功启动后会在终端中出现：
+在侧边栏的 Docker 窗口中选择 IMAGES 下面的镜像，右键镜像，选择 run interactive，成功启动后会在终端中出现：
 
 ```
 Executing task: docker run --rm -it  tensorflow/tensorflow:1.15.4-gpu-py3 
@@ -641,13 +596,7 @@ root@df63863c8660:/#
 
 这时可以将 docker 环境当成一个 linux 系统来操作了。
 
-如果需要在 docker 环境中使用 vscode，可以在侧边栏中选择 CONTAINERS，
-
-![](https://img2.imgtp.com/2024/03/30/xqC5oqXc.png)
-
-
-
-右键 tensorflow/tensorflow:1.15.4-gpu-py3，选择 Attach Visual Studio Code，即可打开 Vscode 窗口。
+如果需要在 docker 环境中使用 vscode，可以在侧边栏中选择 CONTAINERS，右键 container 名，选择 Attach Visual Studio Code，即可打开 Vscode 窗口。
 
 
 
