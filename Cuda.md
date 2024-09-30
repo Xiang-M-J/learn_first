@@ -32,6 +32,34 @@ cmake --build build
 随后在 File | Settings | Build, Execution, Deployment | Cmake 中设置 Toolchain 为刚才设置的 Visual Studio，Generator 为 Visual Studio xx xxxx（安装的 VS 版本）。
 
 
+### C 工程引入cuda
+
+
+#### CMake
+
+在 CMakeLists.txt 中加入
+
+```cmake
+include_directories(D:/cuda118/development/include)  
+link_directories(D:/cuda118/development/lib/x64)  
+link_libraries(cudart cudadevrt)
+```
+
+具体的路径需要根据实际情况进行修改。
+
+如果想要在 `.c` 文件中导入 `.cu` 文件，需要对 .cu 中的代码进行额外的处理，将include包裹在extern "C" 中，还需要标记函数为 extern "C"
+
+```c
+extern "C" {
+#include "xxx.cuh"
+}
+
+extern "C" void cuda_func(){
+// ...
+}
+```
+
+
 
 ## 基本知识
 
@@ -336,7 +364,7 @@ __global__ void reduceUnrollingFull(int * g_idata, int * g_odata, int n) {
 volatile 用于确保数据及时写回到内存。
 
 
-### cuda内存
+### cuda 内存
 
 cuda 的内存包括寄存器、共享（Shared）内存、本地（Local）内存、常量（Constant）内存、纹理（Texture）内存和全局（Global）内存。
 
@@ -431,8 +459,405 @@ __shared__ float a[size_x][size_y];
 ```c
 extern __shared__ int tile[];
 kernel<<<grid,block,isize*sizeof(int)>>>(...);
-
 ```
+
+
+### 流和并发
+
+CUDA流指的是一系列由主机发起的但在设备上执行的异步操作，同个CUDA流中的操作有着严格的顺序，不同流的操作在执行顺序上没有限制。使用多个流来运行多个同步核函数，可以实现grid级别并行。CUDA的API可以分成同步（sync）或者异步（async），同步函数在调用后会阻断主机线程，而异步函数在调用后会把控制权转交给主机线程，流和异步函数时实现grid级别并行的基本要素。
+
+所有的CUDA操作都在流中运行，CUDA中由两种流：隐含声明流（NULL流）和显式声明流（non-NULL流），NULL流是核函数运行的默认流。如果想要实现不同cuda指令相互重叠，需要使用non-null流。异步的、基于流的内核启动和数据传输支持以下类型的粗粒度并发：1、主机计算与设备计算重叠，2、主机计算与主机-设备数据传输重叠，3、主机-设备数据传输与设备计算重叠，4、设备并行计算。
+
+之前主机和设备内存的复制是通过cudaMemcpy完成的，这个函数是同步的，为了实现并行，需要使用异步版本
+
+```c
+cudaError_t cudaMemcpyAsync(void* dst, const void* src, size_t count,cudaMemcpyKind kind, cudaStream_t stream = 0);
+```
+
+相比于之前多了一个cudaStream_t类型的参数。此外，异步数据传输时，需要使用pinned内存，即使用下面这两种函数分配内存。
+
+```c
+cudaError_t cudaMallocHost(void **ptr, size_t size);
+cudaError_t cudaHostAlloc(void **pHost, size_t size, unsigned int flags);
+```
+
+流的回收使用 `cudaStreamDestroy`，为了查询流的执行情况，可以使用
+
+```c
+cudaError_t cudaStreamSynchronize(cudaStream_t stream);  // 同步
+cudaError_t cudaStreamQuery(cudaStream_t stream); // 异步，执行完了返回cudaSuccess，未执行完返回cudaErrorNotReady
+```
+
+多个流调度cuda操作的常见模式为
+
+```c
+for (int i = 0; i < nStreams; i++) {  
+    int offset = i * bytesPerStream;  
+    cudaMemcpyAsync(&d_a[offset], &a[offset], bytePerStream, streams[i]);  
+    kernel<<grid, block, 0, streams[i]>>(&d_a[offset]);  
+    cudaMemcpyAsync(&a[offset], &d_a[offset], bytesPerStream, streams[i]);  
+}  
+for (int i = 0; i < nStreams; i++) {  
+    cudaStreamSynchronize(streams[i]);  
+}
+```
+
+
+**虚假依赖**
+
+如果所有流都在单一硬件工作队列中执行，便可能会出现虚假依赖，如存在三个流，流中的操作相互依赖，那么在工作时便会出现如下情况。
+
+流1：`A-B-C`，流2：`P-Q-R`，流3：`X-Y-Z`
+
+工作队列：`A - B - C P - Q - R X - Y - Z`
+
+这是因为在执行时，会先执行 A，再执行 B 时发现 B依赖A所以阻塞队列，等到B执行完后，C也会因为相同的原因阻塞，不过当C开始执行时，发现 P 不依赖 C，所以如果有额外的硬件资源便会执行 P，X也是一样的道理。
+
+解决虚假依赖最好的方法便是多个工作队列，有时不需要过多的工作队列，可以设置最大工作队列节约资源
+
+```c
+setenv("CUDA_DEVICE_MAX_CONNECTIONS", "32", 1);
+```
+
+不同流可以设置优先级，使用 `cudaStreamCreateWithPriority`，获取优先级使用 `cudaDeviceGetStreamPriorityRange`。
+
+
+**Cuda 事件**
+
+CUDA中的事件本质上是CUDA流中的一个标记，与该流中操作流中的某个点相关联，事件可以用来同步流执行和监测设备进程。
+
+事件的创建和销毁如下
+
+```c
+cudaEvent_t event;
+cudaError_t cudaEventCreate(cudaEvent_t* event);
+cudaError_t cudaEventDestroy(cudaEvent_t event);
+```
+
+下面看一下事件用于记录事件之间的时间间隔的代码
+
+```c
+// create two events  
+cudaEvent_t start, stop;  
+cudaEventCreate(&start);  
+cudaEventCreate(&stop);  
+// record start event on the default stream  
+cudaEventRecord(start);  
+// execute kernel  
+kernel<<<grid, block>>>(arguments);  
+// record stop event on the default stream  
+cudaEventRecord(stop);  
+// wait until the stop event completes  
+cudaEventSynchronize(stop);  
+// calculate the elapsed time between two events  
+float time;  
+cudaEventElapsedTime(&time, start, stop);  
+// clean up the two events  
+cudaEventDestroy(start);  
+cudaEventDestroy(stop);
+```
+
+之前曾经提到了线程的同步 `cudaThreadSynchronize`，流也有同步。流分为null流（同步流）和non-null流（异步流），异步流通常不会阻塞主机，同步流中部分操作会造成阻塞，主机等待，什么都不做，直到某操作完成。虽然non-null流都是异步操作，不会阻塞主机，但是可能会被null流中的操作阻塞，如果non-null流被声明为非阻塞的，那么就不会被null流阻塞，但如果声明为阻塞流，那么就会被null流阻塞。
+
+下面来看一个例子
+
+```c
+kernel_1<<<1, 1, 0, stream_1>>>();
+kernel_2<<<1, 1>>>();
+kernel_3<<<1, 1, 0, stream_2>>>();
+```
+
+上面的例子中第一个和第三个是non-null流，第二个是null流（默认创建），在执行时，kernel_1先被启动，然后控制权转交给主机，主机启动kernel_2，此时kernel_2不会立即执行，而是等到kernel_1执行完毕才执行，kernel_3只能在kernel_2执行完成后再开始执行（以主机视角，每个kernel的启动是异步、非阻塞的，需要区分启动和执行之间的区别）。
+
+CUDA提供了创建非阻塞流的函数
+
+```c
+cudaError_t cudaStreamCreateWithFlags(cudaStream_t* pStream, unsigned int flags);
+```
+
+flags可以选择cudaStreamDefault（阻塞）和cudaStreamNonBlocking（非阻塞），上例中，如果stream_1和stream_2声明为非阻塞流，那么三个核函数同时执行。
+
+
+**同步**
+
+同步有隐式同步和显式同步，cudaMemcpy为隐式同步（阻塞进程），隐式同步常见于内存操作中。
+
+显示同步主要通过调用命令实现
+
+```c
+cudaError_t cudaDeviceSynchronize(void);  // 阻塞主机线程，直到设备完成所有操作
+
+cudaError_t cudaStreamSynchronize(cudaStream_t stream);  // 同步流，会阻塞主机
+cudaError_t cudaStreamQuery(cudaStream_t stream);  // 非阻塞，测试流是否完成
+
+// 与流类似
+cudaError_t cudaEventSynchronize(cudaEvent_t event);  
+cudaError_t cudaEventQuery(cudaEvent_t event);
+```
+
+流之间同步的方法，通过事件来实现同步，流需要等待指定的事件，事件完成后再继续
+
+```c
+cudaError_t cudaStreamWaitEvent(cudaStream_t stream, cudaEvent_t event);
+```
+
+
+#### 并发核函数执行
+
+一个 non-null 流的并发执行例子
+
+```c
+#include "stream_async.cuh"  
+#define N 100000  
+__global__ void kernel_1() {  
+    double sum = 0.0;  
+    for (int i = 0; i < N; i++) {  
+        sum += tan(0.1) * tan(0.1);  
+    }  
+}  
+  
+__global__ void kernel_2() {  
+    double sum = 0.0;  
+    for (int i = 0; i < N; i++) {  
+        sum += tan(0.1) * tan(0.1);  
+    }  
+}  
+  
+void test_simple_stream() {  
+    int n_stream = 4;  
+    cudaStream_t *stream = (cudaStream_t *)malloc(n_stream * sizeof(cudaStream_t));  
+    for (int i = 0; i < n_stream; i++) {  
+        cudaStreamCreate(&stream[i]);  
+    }  
+    cudaEvent_t start,stop;  
+    cudaEventCreate(&start);  
+    cudaEventCreate(&stop);  
+    cudaEventRecord(start,0);  
+    for (int i = 0; i < n_stream; i++) {  
+        kernel_1<<<1, 1, 0, stream[i]>>>();
+        kernel_2<<<1, 1, 0, stream[i]>>>();  
+    }  
+    cudaEventRecord(stop,0);  
+    cudaEventSynchronize(stop);  
+    float elapsed_time;  
+    cudaEventElapsedTime(&elapsed_time,start,stop);  
+    printf("elapsed time:%f ms\n",elapsed_time);  
+    for(int i=0;i<n_stream;i++)  
+    {  
+        cudaStreamDestroy(stream[i]);  
+    }  
+    cudaEventDestroy(start);  
+    cudaEventDestroy(stop);  
+    free(stream);  
+    cudaDeviceReset();  
+}
+```
+
+
+上面提到了虚假依赖问题，虽然现代GPU上已经不存在这个问题，不过还是可以通过广度优先的方法来组织任务。
+
+
+不光核函数或者设备使用多个流处理，使用 OpenMP 还可以让主机在多线程下工作
+
+```c
+omp_set_num_threads(n_stream);
+#pragma omp parallel
+    {      
+        int i=omp_get_thread_num();
+        kernel_1<<<grid,block,0,stream[i]>>>();
+        kernel_2<<<grid,block,0,stream[i]>>>();
+    }
+```
+
+
+#### 重叠内核执行和数据传输
+
+数据传输和内核执行之间存在下面两种关系
+
+- 如果内核使用数据A，那么对A进行数据传输必须要安排在内核启动之前，且必须在同一个流中
+
+- 如果内核完全不使用数据A，那么内核执行和数据传输可以位于不同的流中重叠执行。
+
+第二种情况是重叠内核执行和数据传输的基本做法，当数据传输和内核执行被分配到不同流中时，CUDA默认这是安全的。第一种情况也可以重叠，不过需要一定的技巧，以向量加法为例。
+
+```c
+__global__ void sumArraysGPU(float*a,float*b,float*res,int N)  
+{  
+    int idx=blockIdx.x*blockDim.x+threadIdx.x;  
+    if(idx < N)  
+    {  
+        for(int j=0;j<N_REPEAT;j++)  
+            res[idx]=a[idx]+b[idx];  
+    }  
+}
+```
+
+
+将整个过程分为 N_SEGMENT 份，也就是 N_SEGMENT 个流分别执行（深度优先）
+
+```c
+cudaStream_t stream[N_SEGMENT];  
+for(int i=0;i<N_SEGMENT;i++)  
+{  
+    CHECK(cudaStreamCreate(&stream[i]));  
+}  
+cudaEvent_t start,stop;  
+cudaEventCreate(&start);  
+cudaEventCreate(&stop);  
+cudaEventRecord(start,0);  
+for(int i=0;i<N_SEGMENT;i++)  
+{  
+    int ioffset=i*iElem;  
+    CHECK(cudaMemcpyAsync(&a_d[ioffset],&a_h[ioffset],nByte/N_SEGMENT,cudaMemcpyHostToDevice,stream[i]));  
+    CHECK(cudaMemcpyAsync(&b_d[ioffset],&b_h[ioffset],nByte/N_SEGMENT,cudaMemcpyHostToDevice,stream[i]));  
+    sumArraysGPU<<<grid,block,0,stream[i]>>>(&a_d[ioffset],&b_d[ioffset],&res_d[ioffset],iElem);  
+    CHECK(cudaMemcpyAsync(&res_from_gpu_h[ioffset],&res_d[ioffset],nByte/N_SEGMENT,cudaMemcpyDeviceToHost,stream[i]));  
+}  
+//timer  
+CHECK(cudaEventRecord(stop, 0));  
+CHECK(cudaEventSynchronize(stop));
+```
+
+数据传输使用异步方式，数据声明为pinned内存。
+
+使用广度优先调度重叠
+
+```c
+for(int i=0;i<N_SEGMENT;i++)
+{
+    int ioffset=i*iElem;
+    CHECK(cudaMemcpyAsync(&a_d[ioffset], &a_h[ioffset], nByte/N_SEGMENT, cudaMemcpyHostToDevice, stream[i]));
+    CHECK(cudaMemcpyAsync(&b_d[ioffset], &b_h[ioffset], nByte/N_SEGMENT, cudaMemcpyHostToDevice,stream[i]));
+}
+for(int i=0;i<N_SEGMENT;i++)
+{
+    int ioffset=i*iElem;
+    sumArraysGPU<<<grid,block,0,stream[i]>>>(&a_d[ioffset], &b_d[ioffset], &res_d[ioffset], iElem);
+}
+for(int i=0;i<N_SEGMENT;i++)
+{
+    int ioffset=i*iElem;
+    CHECK(cudaMemcpyAsync(&res_from_gpu_h[ioffset], &res_d[ioffset], nByte/N_SEGMENT, cudaMemcpyDeviceToHost, stream[i]));
+}
+```
+
+
+很多语言中，流都支持回调，cuda也支持，下面是一个例子
+
+```c
+void CUDART_CB my_callback(cudaStream_t stream, cudaError_t status, void *data) {  
+    printf("callback from stream %d\n", *((int *)data));  
+}
+```
+
+回调函数中不可以调用CUDA的API，不可以执行同步。
+
+使用回调函数时
+
+```c
+cudaError_t cudaStreamAddCallback(cudaStream_t stream,cudaStreamCallback_t callback, void *userData, unsigned int flags);
+```
+
+
+### cuda 指令
+
+cuda 自带了单精度和双精度函数，包含了 C 标准数学库，只能在设备端代码使用，这些函数大多有着很好的优化。下面是一个例子
+
+```c
+__global__ void intrinsic_pow(float *ptr) {  
+    *ptr = __powf(*ptr, 2.0f);   // cuda自带函数名往往以__开头
+}  
+  
+void test_intrinsic() {  
+    float val_h = 3.0f;  
+    float *val_d;  
+    float out_h;  
+    cudaMalloc(&val_d, sizeof(float));  
+    cudaMemcpy(val_d, &val_h, sizeof(float), cudaMemcpyHostToDevice);  
+    intrinsic_pow<<<1, 1>>>(val_d);  
+    cudaMemcpy(&out_h, val_d, sizeof(float), cudaMemcpyDeviceToHost);  
+    printf("out_h: %f\n", out_h);  
+}
+```
+
+cuda 自带的函数虽然速度更快，但是在某些场合下需要考虑精度问题，这时候需要在编译时防止优化器对代码进行优化，如设置 `--fmad=false` 禁止编译器使用乘加操作，还有一些其它指令，参考 [NVIDIA CUDA Compiler Driver options-for-steering-gpu-code-generation](https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/index.html#options-for-steering-gpu-code-generation)
+
+
+**原子指令**：原子指令指一个线程对一个变量执行一个不会被打断的指令，即不会被其它线程干扰读改写操作，可用于对全局内存和共享内存操作。大多数原子函数都是二元函数，输入是内存地址和一个值。下面是一个使用原子指令替换加法的例子
+
+
+普通操作
+```c
+__global__ void incr(int *ptr) {
+	int temp = *ptr;
+	temp = temp + 1;
+	*ptr = temp;
+}
+```
+
+原子操作
+
+```c
+__global__ void incr(__global__ int *ptr) {
+	int temp = atomicAdd(ptr, 1);
+}
+```
+
+如果想要自定义一个原子函数，那么需要使用 atomicCAS 设备函数
+
+```c
+int atomicCAS(int *address, int compare, int val);
+```
+
+address 是目标内存地址，compare 是希望在这个位置的值，val 是想要写入的值。下面是一个例子
+
+```c
+__device__ int myAtomicAdd(int *addr, int incr) {  
+    int expected = *addr;  
+    int oldVal = atomicCAS(addr, expected, expected + incr);  
+    while(oldVal != expected) {  
+        expected = oldVal;  
+        oldVal = atomicCAS(addr, expected, expected + incr);  
+    }  
+    return oldVal;  
+}
+```
+
+如果分配错误，那就一直分配下去。
+
+atomic指令虽然好用，但是会造成一定的性能损耗，不过可以减少，比如在计算向量和时，可以先用之前的方法计算部分和，再用原子操作的方式计算部分和之和。
+
+一般atomic指令只支持整数类型，只有 atomicExch 和 atomicAdd 支持单精度，没有atomic指令支持双精度。可以自定义原子指令来实现对浮点数的支持，基本思路是将浮点数的原始比特存储为atomic指令的支持类型。
+
+```c
+__device__ float myAtomicAdd(float *address, float incr) {  
+    // Convert address to point to a supported type of the same size  
+    unsigned int *typedAddress = (unsigned int *)address;  
+    // Stored the expected and desired float values as an unsigned int  
+    float currentVal = *address;  
+    unsigned int expected = __float2uint_rn(currentVal);  
+    unsigned int desired = __float2uint_rn(currentVal + incr);  
+    int oldIntValue = atomicCAS(typedAddress, expected, desired);  
+    while (oldIntValue != expected) {  
+        expected = oldIntValue;  
+        //  Convert the value read from typedAddress to a float, increment,  
+        // and then convert back to an unsigned int        desired = __float2uint_rn(__uint2float_rn(oldIntValue) + incr);  
+        oldIntValue = atomicCAS(typedAddress, expected, desired);  
+    }  
+    return __uint2float_rn(oldIntValue);  
+}
+```
+
+
+
+### cuda 库
+
+[NVIDIA CUDA - NVIDIA Docs](https://docs.nvidia.com/cuda/doc/index.html) 这个链接下的 CUDA Math Libraries 一栏提供了一些cuda库，如快速傅里叶变换库 cuFFT，线性代数库 cuBLAS，随机生成库 cuRAND，信号处理库 NPP等。
+
+
+
+
+
 
 
 ## 基础操作
