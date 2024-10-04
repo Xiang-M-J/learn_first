@@ -370,7 +370,7 @@ cuda 的内存包括寄存器、共享（Shared）内存、本地（Local）内�
 
 核中的线程有自己的本地内存，一个线程块有私有的共享内存，该线程块内的所有线程都可以访问，共享内存会持续整个线程块的周期。所有的线程可以访问全局内存。所有的线程可以访问两个只读的内存：常量内存和纹理内存。全局内存、常量内存和纹理内存有相同的周期。
 
-GPU中的寄存器也是最快的，相比于CPU，GPU的寄存器数量更多，寄存器对于每个线程是私有的，寄存器通常保存被频繁使用的私有变量。寄存器是一种稀有资源，在 RTX3080Ti 中，每个线程块有65536个寄存器。寄存器的溢出对于性能有很大的影响，为了避免溢出，可以在核函数的代码中配置额外的信息来辅助优化
+GPU中的寄存器也是最快的，相比于CPU，GPU的寄存器数量更多，寄存器对于每个线程是私有的，寄存器通常保存被频繁使用的私有变量。寄存器是一种稀有资源，在 RTX3080Ti 中，每个线程块有65536个寄存器。寄存器的溢出对于性能有很大的影响，为了避免溢出，可以在核函数的代码中配置额外的信息来辅助优化。
 
 ```c
 __global__ void __lauch_bounds__(maxThreadaPerBlock,minBlocksPerMultiprocessor)  
@@ -384,13 +384,13 @@ kernel(...) {
 -maxrregcount=32
 ```
 
-来控制一个编译单元里所有核函数使用registers的最大数量。
+来控制一个编译单元里所有核函数使用 registers 的最大数量。
 
-共享内存使用 `__share__` 修饰，由于共享内存可以被块内线程访问，所以存在竞争问题，需要使用 `__syncthreads()` 进行同步
+共享内存使用 `__share__` 修饰，由于共享内存可以被块内线程访问，所以存在竞争问题，需要使用 `__syncthreads()` 进行同步。
 
 常量内存只读指的是不能被核函数修改，但是可以被主机函数修改，使用 `__constant__` 进行修饰，常量内存可以被 cudaMemcpyToSymbol 初始化。
 
-全局内存是 GPU 上最大的内存，延迟也最高，最常用的内存。可以在设备端定义，使用 `__device__` 定义设备变量。下面是一个简单的定义设备变量的例子
+全局内存是 GPU 上最大的内存，延迟也最高，最默认使用的内存（直接使用 cudaMalloc 分配的内存），对 CPU 可见。可以在设备端定义，使用 `__device__` 定义设备变量。下面是一个简单的定义设备变量的例子
 
 ```c
 __device__ float val_d;  
@@ -460,6 +460,28 @@ __shared__ float a[size_x][size_y];
 extern __shared__ int tile[];
 kernel<<<grid,block,isize*sizeof(int)>>>(...);
 ```
+
+共享变量可以用来保存在执行阶段需要重复使用多次的数据，速度会比直接从全局内存中读取快。下面来看一个例子，对于图像，经常需要计算直方图，即统计不同像素出现的频率，如果不使用共享内存，那么可以考虑使用原子操作，但是速度会比较慢，可以使用共享内存来加速
+
+```c
+// histogram_with_shared<<< (SIZE + NUM_BINS - 1) / NUM_BINS, NUM_BINS>>>()  
+__global__ void histogram_with_shared(int *d_a, int *d_b) {  
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;  
+    int offset = blockDim.x * gridDim.x;  
+  
+    __shared__ int cached[NUM_BINS];  
+    cached[threadIdx.x] = 0;  
+    __syncthreads();  
+    while (tid < SIZE) {  
+        atomicAdd(&cached[d_a[tid]], 1);  
+        tid += offset;  
+    }  
+    __syncthreads();  
+    atomicAdd(&d_b[threadIdx.x], cached[threadIdx.x]);  
+}
+```
+
+
 
 
 ### 流和并发
