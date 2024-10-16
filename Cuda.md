@@ -251,12 +251,13 @@ __global__ void reduceNeighbored(int * g_idata, int * g_odata, int n) {
         // 第一次迭代时，x[id] += x[id+1] id = 0, 2, 4, 6, 8, ...  
         // 第二次迭代时, x[id] += x[id+2] id = 0, 4, 8, 12, 16,...  
         // 第三次迭代时，x[id] += x[id+4] id = 0, 8, 16, ...  
-        if (id % (2 * stride) == 0) {  
+        if (id % (2 * stride) == 0) {    // 换成 id & (2 * stride - 1) == 0 更快
             i_data[id] += i_data[id + stride];  
             __syncthreads();   // 确保同个block中的threads在当前迭代时，部分和已经存入内存  
         }  
     }    if (id == 0) g_odata[blockIdx.x] = i_data[0];  
-}```
+}
+```
 
 显然，对于上面的核函数，索引为奇数的线程不会执行，并且索引为 0 的线程执行了最多次计算。在主机函数中，grid 和 block 都是一维的，最后结果还需要对 g_odata 求和。
 
@@ -480,6 +481,43 @@ __global__ void histogram_with_shared(int *d_a, int *d_b) {
     atomicAdd(&d_b[threadIdx.x], cached[threadIdx.x]);  
 }
 ```
+
+
+上面的求多个数据之和也可以利用共享内存
+
+```c
+__global__ void reduction_shared(float *in_data, float *out_data, int n_threads, int size)
+{
+    extern __shared__ float sum[];
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    sum[threadIdx.x] = (idx < size) ? in_data[idx] : 0; // 将值赋给共享内存
+    __syncthreads();
+    if (idx < size)
+    {  
+        for (int stride = 1; stride < n_threads; stride *= 2)
+        {
+            int index = 2 * stride * threadIdx.x;
+            if (index + stride < n_threads)
+            {
+                sum[index] += sum[index + stride];
+                __syncthreads();
+            }
+        }
+    }
+
+    if (threadIdx.x == 0) out_data[blockIdx.x] = sum[0];
+}
+```
+
+
+假设共有 $2^{20}$ 个数据，则可以这样调用
+
+```c
+int n_threads = 1024;
+int n_grid = size / n_threads;
+reduction_shared<<<n_grid, n_threads, n_threads * sizeof(float), 0>>>(in_data_d, out_data_d, n_threads, size);
+```
+
 
 
 
