@@ -258,7 +258,7 @@ __global__ void reduceNeighbored(int * g_idata, int * g_odata, int n) {
     }    if (id == 0) g_odata[blockIdx.x] = i_data[0];  
 }```
 
-显然，对于上面的核函数，索引为奇数的线程不会执行，并且索引为 0的线程执行了最多次计算。在主机函数中，grid 和 block 都是一维的，最后结果还需要对 g_odata 求和。
+显然，对于上面的核函数，索引为奇数的线程不会执行，并且索引为 0 的线程执行了最多次计算。在主机函数中，grid 和 block 都是一维的，最后结果还需要对 g_odata 求和。
 
 上面这个核函数是顺序执行，可以通过序号重排来降低 divergence
 
@@ -883,6 +883,33 @@ __device__ float myAtomicAdd(float *address, float incr) {
 
 
 ## 基础操作
+
+
+### cuda 函数计时
+
+使用 cuda 官方示例中提供的函数，该函数可以从 [cuda-samples/Common/helper_timer.h](https://github.com/NVIDIA/cuda-samples/blob/master/Common/helper_timer.h) 下载（下载时注意 cuda 版本）。使用方法如下
+
+```c
+// Initialize timer
+StopWatchInterface *timer;
+
+sdkCreateTimer(&timer);
+
+sdkStartTimer(&timer);
+// ... Execution code ...
+
+// Getting elapsed time
+cudaDeviceSynchronize(); // Blocks the host until GPU finishes the work
+sdkStopTimer(&timer);
+
+// Getting execution time in micro-secondes
+
+float execution_time_ms = sdkGetTimerValue(&timer)
+// Termination of timer
+sdkDeleteTimer(&timer);
+```
+
+
 
 ### 错误处理
 
