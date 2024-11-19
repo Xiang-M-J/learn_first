@@ -22,6 +22,1081 @@ flutter build apk
 flutter build apk -t lib\main_1.dart
 ```
 
+## 插件开发
+
+### 基本知识
+
+
+#### 如何创建插件
+
+在开发flutter应用时，有时需要自己开发原生插件，创建插件的命令如下
+
+```sh
+flutter create --org com.example -t plugin --platform android plugin_name
+```
+
+默认使用 kotlin 语言创建项目，如果需要指定 java 语言，需要在后面加上 `-a java`
+
+```sh
+flutter create --org com.example -t plugin --platform android plugin_name -a java
+```
+
+如果想在已经创建好的工程添加新的平台
+
+```sh
+flutter create --template=plugin --platforms=web .
+```
+
+
+创建好的插件工程具体有以下三个目录
+
+- android: Android的原生代码
+- example: 一个Flutter的实例项目，用来展示、测试你开发的plugin的
+- lib: Plugin的Dart代码
+
+假设创建了一个插件工程 `test_plugin`，最好不要通过android studio 打开 `test_plugin`来修改原生代码，而是要打开 `test_plugin/android` 来修改原生代码，这样才能正确地构建项目，同步gradle包。此外还需要在 `android\build.gradle`中添加下面这些内容配置flutter
+
+```gradle
+//获取local.properties配置文件  
+def localProperties = new Properties()  
+def localPropertiesFile = rootProject.file('local.properties')  
+if (localPropertiesFile.exists()) {  
+    localPropertiesFile.withReader('UTF-8') { reader ->  
+        localProperties.load(reader)  
+    }  
+}  
+//获取flutter的sdk路径  
+def flutterRoot = localProperties.getProperty('flutter.sdk')  
+if (flutterRoot == null) {  
+    throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")  
+}  
+  
+dependencies {  
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"  
+    compileOnly files("$flutterRoot/bin/cache/artifacts/engine/android-arm/flutter.jar")  
+    compileOnly 'androidx.annotation:annotation:1.1.0'  
+    implementation 'androidx.core:core:1.6.0'
+}
+```
+
+
+#### 本地使用插件
+
+在flutter工程目录中新建plugins文件夹用来存放本地插件，在`pubspec.yaml` 中添加以下代码
+
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^0.1.2
+#pub插件引用
+#  webview_flutter: ^0.3.0
+
+#本地插件引用 注意缩进格式
+  webview_flutter:
+    path: plugins/webview_flutter
+```
+
+
+如果插件中申请了额外的权限和服务，也需要在android/src/main/AndroidManifest.xml 注明，直接从插件声明的地方复制粘贴过来即可。
+
+
+### 录制系统播放的声音
+
+该插件基于flutter包 [flutter_screen_recording](https://pub.dev/packages/flutter_screen_recording) 和 github库 [SystemAudioCaptureAndroid](https://github.com/HarshSinghRajawat/SystemAudioCaptureAndroid)，实现了在安卓手机上录制系统播放声音的功能，也就是说，只要一个安卓应用没有[设置不允许其它应用录制声音](https://developer.android.google.cn/media/platform/av-capture?hl=en#constraining_capture_by_other_apps)，该插件可以录制该应用播放的声音。
+
+Github地址：[Xiang-M-J/flutterSystemAudioRecorder](https://github.com/Xiang-M-J/flutterSystemAudioRecorder)
+
+
+#### 创建工程
+
+
+创建插件工程
+
+```sh
+flutter create -t plugin --platform android system_audio_recorder
+```
+
+创建好的插件工程主要关注的是以下三个目录
+
+- android：Android的原生代码
+- example：一个Flutter的实例项目，用来展示、测试开发的plugin
+- lib：Plugin的Dart代码
+
+
+#### 原生代码
+
+用android studio 打开 `system_audio_recorder/android`，开始修改配置。打开 `system_audio_recorder/android/gradle/wrapper/gradle-warpper.properties`，将 distributionUrl 修改为 `file:///D://work//app//gradle-7.5-all.zip`。打开 `system_audio_recorder/android/build.gradle` 在文件末尾添加配置flutter和androidx.core的代码
+
+```
+//获取local.properties配置文件  
+def localProperties = new Properties()  
+def localPropertiesFile = rootProject.file('local.properties')  
+if (localPropertiesFile.exists()) {  
+    localPropertiesFile.withReader('UTF-8') { reader ->  
+        localProperties.load(reader)  
+    }  
+}  
+//获取flutter的sdk路径  
+def flutterRoot = localProperties.getProperty('flutter.sdk')  
+if (flutterRoot == null) {  
+    throw new GradleException("Flutter SDK not found. Define location with flutter.sdk in the local.properties file.")  
+}  
+  
+dependencies {  
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"  
+    compileOnly files("$flutterRoot/bin/cache/artifacts/engine/android-arm/flutter.jar")  
+    compileOnly 'androidx.annotation:annotation:1.1.0'  
+    implementation 'androidx.core:core:1.6.0'
+}
+```
+
+点击 sync Now，同步gradle包。
+
+`kotlin/com/example/system_audio_recorder/` 已经有 `SystemAudioRecorderPlugin.kt` ，这个文件用来实现插件的各种方法，但是由于需要录音系统声音，需要使用前台服务，所以需要额外添加一个 `ForegroundService.kt` 文件用于配置前台服务，`ForegroundService.kt` 的内容如下：
+
+
+> [!WARNING] 
+> ForegroundService 的 package 不能和 SystemAudioRecorderPlugin 的 package 一致，否则在启动服务时会报错！！！
+
+
+```kotlin
+package com.foregroundservice  
+
+import android.Manifest  
+import android.app.Activity  
+import android.app.NotificationChannel  
+import android.app.NotificationManager  
+import android.app.PendingIntent  
+import android.app.Service  
+import android.content.Context  
+import android.content.Intent  
+import android.content.pm.PackageManager  
+import android.os.Build  
+import android.os.IBinder  
+import android.util.Log  
+import androidx.core.app.ActivityCompat  
+import androidx.core.app.NotificationCompat  
+import androidx.core.content.ContextCompat  
+import com.example.system_audio_recorder.SystemAudioRecorderPlugin  
+  
+class ForegroundService : Service() {  
+    private val CHANNEL_ID = "ForegroundService Kotlin"  
+    private val REQUEST_CODE_MEDIA_PROJECTION = 1001  
+    // 静态方法，SystemAudioRecorderPlugin 会调用这些方法  
+    companion object {  
+        fun startService(context: Context, title: String, message: String) {  
+            println("-------------------------- startService");  
+            try {  
+                val startIntent = Intent(context, ForegroundService::class.java)  
+                startIntent.putExtra("messageExtra", message)  
+                startIntent.putExtra("titleExtra", title)  
+                println("-------------------------- startService2");  
+  
+                ContextCompat.startForegroundService(context, startIntent)  
+                println("-------------------------- startService3");  
+  
+            } catch (err: Exception) {  
+                println("startService err");  
+                println(err);  
+            }  
+        }  
+  
+        fun stopService(context: Context) {  
+            val stopIntent = Intent(context, ForegroundService::class.java)  
+            context.stopService(stopIntent)  
+        }  
+    }  
+    // 在 SystemAudioRecorderPlugin 调用 ActivityCompat.startActivityForResult 时调用  
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {  
+        try {  
+            Log.i("ForegroundService", "onStartCommand")  
+            // Verification permission en Android 14 (SDK 34)  
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {  
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION)  
+                    != PackageManager.PERMISSION_GRANTED) {  
+                    Log.i("Foreground","MediaProjection permission not granted, requesting permission")  
+  
+                    ActivityCompat.requestPermissions(  
+                        this as Activity,  
+                        arrayOf(Manifest.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION),  
+                        REQUEST_CODE_MEDIA_PROJECTION  
+                    )  
+                } else {  
+                    startForegroundServiceWithNotification(intent)  
+                }  
+            } else {  
+                startForegroundServiceWithNotification(intent)  
+            }  
+  
+            return START_NOT_STICKY  
+        } catch (err: Exception) {  
+            Log.e("ForegroundService", "onStartCommand error: $err")  
+        }  
+        return START_STICKY  
+    }  
+    private fun startForegroundServiceWithNotification(intent: Intent?) {  
+  
+        createNotificationChannel()  
+        val notificationIntent = Intent(this, SystemAudioRecorderPlugin::class.java)  
+  
+        val pendingIntent = PendingIntent.getActivity(  
+            this, 0, notificationIntent, PendingIntent.FLAG_MUTABLE  
+        )  
+  
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)  
+            .setContentIntent(pendingIntent)  
+            .build()  
+  
+        startForeground(1, notification)  
+        Log.i("ForegroundService", "startForegroundServiceWithNotification")  
+    }  
+  
+    override fun onBind(intent: Intent): IBinder? {  
+        return null  
+    }  
+  
+    private fun createNotificationChannel() {  
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {  
+            val serviceChannel = NotificationChannel(  
+                CHANNEL_ID, "Foreground Service Channel", NotificationManager.IMPORTANCE_DEFAULT  
+            )  
+            val manager = getSystemService(NotificationManager::class.java)  
+            manager!!.createNotificationChannel(serviceChannel)  
+        }  
+    }  
+  
+}
+```
+
+
+
+`SystemAudioRecorderPlugin` 的内容如下
+
+```kotlin
+package com.example.system_audio_recorder  
+  
+import android.annotation.SuppressLint  
+import android.app.Activity  
+import android.content.Context  
+import android.content.Intent  
+import android.media.AudioAttributes  
+import android.media.AudioFormat  
+import android.media.AudioPlaybackCaptureConfiguration  
+import android.media.AudioRecord  
+import android.media.projection.MediaProjection  
+import android.media.projection.MediaProjectionManager  
+import android.os.Build  
+import android.os.Environment  
+import android.util.Log  
+import androidx.annotation.RequiresApi  
+import androidx.core.app.ActivityCompat  
+  
+import io.flutter.embedding.engine.plugins.FlutterPlugin  
+import io.flutter.embedding.engine.plugins.activity.ActivityAware  
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding  
+import io.flutter.plugin.common.MethodCall  
+import io.flutter.plugin.common.MethodChannel  
+import io.flutter.plugin.common.MethodChannel.MethodCallHandler  
+import io.flutter.plugin.common.MethodChannel.Result  
+import io.flutter.plugin.common.PluginRegistry  
+import java.io.DataInputStream  
+import java.io.DataOutputStream  
+import java.io.File  
+import java.io.FileInputStream  
+import java.io.FileNotFoundException  
+import java.io.FileOutputStream  
+import java.io.IOException  
+import java.nio.ByteBuffer  
+import java.nio.ByteOrder  
+import java.text.SimpleDateFormat  
+import java.util.Date  
+import com.foregroundservice.ForegroundService  
+  
+/** SystemAudioRecorderPlugin */  
+class SystemAudioRecorderPlugin: MethodCallHandler, PluginRegistry.ActivityResultListener, FlutterPlugin,  
+  ActivityAware {  
+  
+  private lateinit var channel : MethodChannel  
+  private var mProjectionManager: MediaProjectionManager? = null  
+  private var mMediaProjection: MediaProjection? = null  
+  private var mFileName: String? = ""  
+  private val RECORD_REQUEST_CODE = 333  
+  var TAG: String = "system_audio_recorder"  
+  
+  private lateinit var _result: Result  
+  
+  private var pluginBinding: FlutterPlugin.FlutterPluginBinding? = null  
+  private var activityBinding: ActivityPluginBinding? = null;  
+  var recordingThread: Thread? = null  
+  private val bufferElements2Record = 1024  
+  private val bytesPerElement = 2  
+  private var mAudioRecord: AudioRecord? = null  
+  private var isRecording: Boolean = false  
+  private var RECORDER_SAMPLERATE: Int = 44100  
+  val RECORDER_CHANNELS: Int = AudioFormat.CHANNEL_IN_MONO  
+  val RECORDER_AUDIO_ENCODING: Int = AudioFormat.ENCODING_PCM_16BIT  
+  private var root: File? = null  
+  private var cache: File? = null  
+  private var rawOutput: File? = null  
+  
+  override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {  
+    pluginBinding = flutterPluginBinding;  
+  }  
+  
+  @RequiresApi(Build.VERSION_CODES.Q)  
+  // 在 ForegroundService 的startCommand执行完后执行  
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?): Boolean {  
+    if (requestCode == RECORD_REQUEST_CODE) {  
+      if (resultCode == Activity.RESULT_OK) {  
+        mMediaProjection = mProjectionManager?.getMediaProjection(resultCode, data!!)  
+        startRecording(mMediaProjection!!)  
+        _result.success(true)  
+        return true  
+      } else {  
+        _result.success(false)  
+      }  
+    }  
+    return false  
+  }  
+  
+  override fun onMethodCall(call: MethodCall, result: Result) {  
+    val appContext = pluginBinding!!.applicationContext  
+  
+    if (call.method == "getPlatformVersion") {  
+      result.success("Android ${Build.VERSION.RELEASE}")  
+    } else if (call.method == "startRecord"){  
+      try {  
+        _result = result  
+        val sampleRate = call.argument<Int?>("sampleRate")  
+        if (sampleRate != null){  
+          RECORDER_SAMPLERATE = sampleRate  
+        }  
+  
+        ForegroundService.startService(appContext, "开始录音", "开始录音")  
+        mProjectionManager =  
+          appContext.getSystemService(  
+            Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager?  
+  
+        val permissionIntent = mProjectionManager?.createScreenCaptureIntent()  
+        Log.i(TAG, "startActivityForResult")  
+        // 调用 ForegroundService的 startCommand 方法  
+        ActivityCompat.startActivityForResult(  
+          activityBinding!!.activity,  
+          permissionIntent!!,  
+          RECORD_REQUEST_CODE,  
+          null  
+        )  
+      } catch (e: Exception) {  
+        Log.e(TAG, "Error onMethodCall startRecord: ${e.message}")  
+        result.success(false)  
+      }  
+    }  
+    else if (call.method == "stopRecord"){  
+      Log.i(TAG, "stopRecord")  
+      try {  
+        ForegroundService.stopService(appContext)  
+        if (mAudioRecord != null){  
+          stop()  
+          result.success(mFileName)  
+        }else{  
+          result.success("")  
+        }  
+      } catch (e: Exception) {  
+        result.success("")  
+      }  
+    }  
+    else {  
+      result.notImplemented()  
+    }  
+  }  
+  
+  @RequiresApi(api = Build.VERSION_CODES.Q)  
+  fun startRecording(mProjection: MediaProjection): Boolean {  
+    Log.i(TAG, "startRecording")  
+    if (mAudioRecord == null){  
+      val config : AudioPlaybackCaptureConfiguration  
+      try {  
+        config = AudioPlaybackCaptureConfiguration.Builder(mProjection)  
+          .addMatchingUsage(AudioAttributes.USAGE_MEDIA)  
+          .addMatchingUsage(AudioAttributes.USAGE_GAME)  
+          .build()  
+      } catch (e: NoClassDefFoundError) {  
+        return false  
+      }  
+      val format = AudioFormat.Builder()  
+        .setEncoding(RECORDER_AUDIO_ENCODING)  
+        .setSampleRate(RECORDER_SAMPLERATE)  
+        .setChannelMask(RECORDER_CHANNELS)  
+        .build()  
+  
+      mAudioRecord = AudioRecord.Builder().setAudioFormat(format).setBufferSizeInBytes(bufferElements2Record).setAudioPlaybackCaptureConfig(config).build()  
+      isRecording = true  
+      mAudioRecord!!.startRecording()  
+  
+      createAudioFile()  
+  
+      recordingThread = Thread({ writeAudioFile() }, "System Audio Capture")  
+  
+      recordingThread!!.start()  
+  
+    }  
+    return true  
+  }  
+  
+  @Throws(IOException::class)  
+  private fun rawToWave(rawFile: File, waveFile: File) {  
+    val rawData = ByteArray(rawFile.length().toInt())  
+    var input: DataInputStream? = null  
+    try {  
+      input = DataInputStream(FileInputStream(rawFile))  
+      input.read(rawData)  
+    } finally {  
+      input?.close()  
+    }  
+  
+    var output: DataOutputStream? = null  
+    try {  
+      output = DataOutputStream(FileOutputStream(waveFile))  
+  
+      // WAVE header  
+      writeString(output, "RIFF") // chunk id  
+      writeInt(output, 36 + rawData.size) // chunk size  
+      writeString(output, "WAVE") // format  
+      writeString(output, "fmt ") // subchunk 1 id  
+      writeInt(output, 16) // subchunk 1 size  
+      writeShort(output, 1.toShort()) // audio format (1 = PCM)  
+      writeShort(output, 1.toShort()) // number of channels  
+      writeInt(output, RECORDER_SAMPLERATE) // sample rate  
+      writeInt(output, RECORDER_SAMPLERATE) // byte rate  
+      writeShort(output, 2.toShort()) // block align  
+      writeShort(output, 16.toShort()) // bits per sample  
+      writeString(output, "data") // subchunk 2 id  
+      writeInt(output, rawData.size) // subchunk 2 size  
+      // Audio data (conversion big endian -> little endian)      
+      val shorts = ShortArray(rawData.size / 2)  
+      ByteBuffer.wrap(rawData).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()[shorts]  
+      val bytes = ByteBuffer.allocate(shorts.size * 2)  
+      for (s in shorts) {  
+        bytes.putShort(s)  
+      }  
+  
+      output.write(fullyReadFileToBytes(rawFile))  
+    } finally {  
+      output?.close()  
+    }  
+  }  
+  
+  @Throws(IOException::class)  
+  fun fullyReadFileToBytes(f: File): ByteArray {  
+    val size = f.length().toInt()  
+    val bytes = ByteArray(size)  
+    val tmpBuff = ByteArray(size)  
+    val fis = FileInputStream(f)  
+    try {  
+      var read = fis.read(bytes, 0, size)  
+      if (read < size) {  
+        var remain = size - read  
+        while (remain > 0) {  
+          read = fis.read(tmpBuff, 0, remain)  
+          System.arraycopy(tmpBuff, 0, bytes, size - remain, read)  
+          remain -= read  
+        }  
+      }  
+    } catch (e: IOException) {  
+      throw e  
+    } finally {  
+      fis.close()  
+    }  
+  
+    return bytes  
+  }  
+  
+  private fun createAudioFile() {  
+  
+    root = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "/Audio Capture")  
+//    val mFilename: String? = pluginBinding!!.applicationContext.externalCacheDir?.absolutePath  
+//    root = File(mFilename)  
+    cache = File(pluginBinding!!.applicationContext.cacheDir.absolutePath, "/RawData")  
+    if (!root!!.exists()) {  
+      root!!.mkdir()  
+      root!!.setWritable(true)  
+    }  
+    if (!cache!!.exists()) {  
+      cache!!.mkdir()  
+      cache!!.setWritable(true)  
+      cache!!.setReadable(true)  
+    }  
+  
+    rawOutput = File(cache, "raw.pcm")  
+  
+    try {  
+      rawOutput!!.createNewFile()  
+    } catch (e: IOException) {  
+      Log.e(TAG, "createAudioFile: $e")  
+      e.printStackTrace()  
+    }  
+  
+    Log.d(TAG, "path: " + rawOutput!!.absolutePath)  
+  
+  }  
+  
+  @Throws(IOException::class)  
+  private fun writeInt(output: DataOutputStream, value: Int) {  
+    output.write(value shr 0)  
+    output.write(value shr 8)  
+    output.write(value shr 16)  
+    output.write(value shr 24)  
+  }  
+  
+  @Throws(IOException::class)  
+  private fun writeShort(output: DataOutputStream, value: Short) {  
+    output.write(value.toInt() shr 0)  
+    output.write(value.toInt() shr 8)  
+  }  
+  
+  @Throws(IOException::class)  
+  private fun writeString(output: DataOutputStream, value: String) {  
+    for (element in value) {  
+      output.write(element.code)  
+    }  
+  }  
+  
+  private fun shortToByte(data: ShortArray): ByteArray {  
+    val arraySize = data.size  
+    val bytes = ByteArray(arraySize * 2)  
+    for (i in 0 until arraySize) {  
+      bytes[i * 2] = (data[i].toInt() and 0x00FF).toByte()  
+      bytes[i * 2 + 1] = (data[i].toInt() shr 8).toByte()  
+      data[i] = 0  
+    }  
+    return bytes  
+  }  
+  
+  private fun writeAudioFile() {  
+    try {  
+      val outputStream = FileOutputStream(rawOutput!!.absolutePath)  
+      val data = ShortArray(bufferElements2Record)  
+  
+      while (isRecording) {  
+        mAudioRecord!!.read(data, 0, bufferElements2Record)  
+  
+        val buffer = ByteBuffer.allocate(8 * 1024)  
+  
+        outputStream.write(  
+          shortToByte(data),  
+          0,  
+          bufferElements2Record * bytesPerElement  
+        )  
+      }  
+  
+      outputStream.close()  
+    } catch (e: FileNotFoundException) {  
+      Log.e(TAG, "File Not Found: $e")  
+      e.printStackTrace()  
+    } catch (e: IOException) {  
+      Log.e(TAG, "IO Exception: $e")  
+      e.printStackTrace()  
+    }  
+  }  
+  
+  @SuppressLint("SimpleDateFormat")  
+  fun startProcessing() {  
+    isRecording = false  
+    mAudioRecord!!.stop()  
+    mAudioRecord!!.release()  
+  
+    mFileName = SimpleDateFormat("yyyy-MM-dd hh-mm-ss").format(Date()) + ".mp3"  
+  
+    //Convert To mp3 from raw data i.e pcm  
+    val output = File(root, mFileName)  
+  
+    try {  
+      output.createNewFile()  
+    } catch (e: IOException) {  
+      e.printStackTrace()  
+      Log.e(TAG, "startProcessing: $e")  
+    }  
+  
+    try {  
+      rawOutput?.let { rawToWave(it, output) }  
+    } catch (e: IOException) {  
+      e.printStackTrace()  
+    } finally {  
+      rawOutput!!.delete()  
+    }  
+  }  
+  
+  private fun stop(){  
+    startProcessing()  
+    if (mAudioRecord != null){  
+      mAudioRecord = null  
+      recordingThread = null  
+    }  
+  }  
+  
+  override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {}  
+  
+  override fun onAttachedToActivity(binding: ActivityPluginBinding) {  
+    activityBinding = binding;  
+    channel = MethodChannel(pluginBinding!!.binaryMessenger, "system_audio_recorder")  
+    channel.setMethodCallHandler(this)  
+    activityBinding!!.addActivityResultListener(this);  
+  }  
+  
+  override fun onDetachedFromActivityForConfigChanges() {}  
+  
+  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {  
+    activityBinding = binding;  
+  }  
+  
+  override fun onDetachedFromActivity() {}  
+}
+```
+
+
+
+此外需要配置一下 `system_audio_recorder/src/main/AndroidManifest.xml`，添加一些权限。
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>  
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"  
+    package="com.example.system_audio_recorder">  
+  
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />  
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />  
+    <uses-permission android:name="android.permission.WRITE_INTERNAL_STORAGE" />  
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />  
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />  
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION" />  
+    <uses-permission android:name="android.permission.WAKE_LOCK" />  
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />  
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />  
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />  
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />  
+  
+</manifest>
+```
+
+#### 插件代码
+
+接下来使用 android studio 打开 system_audio_recorder，编写插件代码。
+
+首先配置一下 `system_audio_recorder/pubspec.yaml`，添加dependencies
+
+```yaml
+dependencies:  
+  flutter:  
+    sdk: flutter  
+  plugin_platform_interface: ^2.0.2 
+  # 新添加的dependencies
+  flutter_foreground_task: ^6.0.0+1  
+  meta: ^1.5.0
+```
+
+在 `system_audio_recorder/lib` 中有三个 dart 文件，三个文件的内容为
+
+`system_audio_recorder/lib/system_audio_recorder.dart`
+
+```dart
+  
+import 'dart:ffi';  
+import 'dart:io';  
+  
+import 'package:flutter/foundation.dart';  
+  
+import 'system_audio_recorder_platform_interface.dart';  
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';  
+  
+class SystemAudioRecorder {  
+  Future<String?> getPlatformVersion() {  
+    return SystemAudioRecorderPlatform.instance.getPlatformVersion();  
+  }  
+  static Future<bool> startRecord(String name, {String? titleNotification, String? messageNotification, int? sampleRate}) async {  
+    try {  
+      if (titleNotification == null) {  
+        titleNotification = "";  
+      }  
+      if (messageNotification == null) {  
+        messageNotification = "";  
+      }  
+  
+      if (sampleRate == null){  
+        sampleRate = 44100;  
+      }  
+  
+      await _maybeStartFGS(titleNotification, messageNotification);  
+      final bool start = await SystemAudioRecorderPlatform.instance.startRecord(  
+        name,  
+        notificationTitle: titleNotification,  
+        notificationMessage: messageNotification,  
+        sampleRate: sampleRate,  
+      );  
+  
+      return start;  
+    } catch (err) {  
+      print("startRecord err");  
+      print(err);  
+    }  
+  
+    return false;  
+  }  
+  
+  static Future<String> get stopRecord async {  
+    try {  
+      final String path = await SystemAudioRecorderPlatform.instance.stopRecord;  
+      if (!kIsWeb && Platform.isAndroid) {  
+        FlutterForegroundTask.stopService();  
+      }  
+      return path;  
+    } catch (err) {  
+      print("stopRecord err");  
+      print(err);  
+    }  
+    return "";  
+  }  
+  
+  static _maybeStartFGS(String titleNotification, String messageNotification) {  
+    try {  
+      if (!kIsWeb && Platform.isAndroid) {  
+        FlutterForegroundTask.init(  
+          androidNotificationOptions: AndroidNotificationOptions(  
+            channelId: 'notification_channel_id',  
+            channelName: titleNotification,  
+            channelDescription: messageNotification,  
+            channelImportance: NotificationChannelImportance.LOW,  
+            priority: NotificationPriority.LOW,  
+            iconData: const NotificationIconData(  
+              resType: ResourceType.mipmap,  
+              resPrefix: ResourcePrefix.ic,  
+              name: 'launcher',  
+            ),  
+          ),  
+          iosNotificationOptions: const IOSNotificationOptions(  
+            showNotification: true,  
+            playSound: false,  
+          ),  
+          foregroundTaskOptions: const ForegroundTaskOptions(  
+            interval: 5000,  
+            autoRunOnBoot: true,  
+            allowWifiLock: true,  
+          ),  
+        );  
+      }  
+    } catch (err) {  
+      print("_maybeStartFGS err");  
+      print(err);  
+    }  
+  }  
+}
+```
+
+
+`system_audio_recorder_method_channel.dart`
+
+```dart
+import 'package:flutter/foundation.dart';  
+import 'package:flutter/services.dart';  
+  
+import 'system_audio_recorder_platform_interface.dart';  
+  
+/// An implementation of [SystemAudioRecorderPlatform] that uses method channels.  
+class MethodChannelSystemAudioRecorder extends SystemAudioRecorderPlatform {  
+  /// The method channel used to interact with the native platform.  
+  @visibleForTesting  
+  final methodChannel = const MethodChannel('system_audio_recorder');  
+  
+  @override  
+  Future<String?> getPlatformVersion() async {  
+    final version = await methodChannel.invokeMethod<String>('getPlatformVersion');  
+    return version;  
+  }  
+  
+  Future<bool> startRecord(  
+      String name, {  
+        String notificationTitle = "",  
+        String notificationMessage = "",  
+        int sampleRate = 44100  
+      }) async {  
+    final bool start = await methodChannel.invokeMethod('startRecord', {  
+      "name": name,  
+      "title": notificationTitle,  
+      "message": notificationMessage,  
+      "sampleRate": sampleRate  
+    });  
+    return start;  
+  }  
+  
+  
+  Future<String> get stopRecord async {  
+    final String path = await methodChannel.invokeMethod('stopRecord');  
+    return path;  
+  }  
+}
+```
+
+`system_audio_recorder_platform_interface.dart`
+
+```dart
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';  
+  
+import 'system_audio_recorder_method_channel.dart';  
+  
+abstract class SystemAudioRecorderPlatform extends PlatformInterface {  
+  /// Constructs a SystemAudioRecorderPlatform.  
+  SystemAudioRecorderPlatform() : super(token: _token);  
+  
+  static final Object _token = Object();  
+  
+  static SystemAudioRecorderPlatform _instance = MethodChannelSystemAudioRecorder();  
+  
+  /// The default instance of [SystemAudioRecorderPlatform] to use.  
+  ///  /// Defaults to [MethodChannelSystemAudioRecorder].  
+  static SystemAudioRecorderPlatform get instance => _instance;  
+  
+  /// Platform-specific implementations should set this with their own  
+  /// platform-specific class that extends [SystemAudioRecorderPlatform] when  
+  /// they register themselves.  
+  static set instance(SystemAudioRecorderPlatform instance) {  
+    PlatformInterface.verifyToken(instance, _token);  
+    _instance = instance;  
+  }  
+  
+  Future<String?> getPlatformVersion() {  
+    throw UnimplementedError('platformVersion() has not been implemented.');  
+  }  
+  Future<bool> startRecord(  
+      String name, {  
+        String notificationTitle = "",  
+        String notificationMessage = "",  
+        int sampleRate = 44100  
+      }) {  
+    throw UnimplementedError();  
+  }  
+  
+  Future<String> get stopRecord {  
+    throw UnimplementedError();  
+  }  
+}
+```
+
+
+#### example 代码
+
+最后用 android studio 打开 `system_audio_recorder/example` 文件夹，这里需要在`system_audio_recorder/example/android/app/src/main/AndroidManifest.xml`中添加 service
+
+```xml
+<application  
+    android:label="system_audio_recorder_example"  
+    android:name="${applicationName}"  
+    android:icon="@mipmap/ic_launcher"> 
+     
+	<!--添加service-->
+    <service  
+        android:name="com.foregroundservice.ForegroundService"  
+        android:foregroundServiceType="mediaProjection"  
+        android:enabled="true"  
+        android:exported="false">  
+    </service>  
+    
+    <activity  
+        android:name=".MainActivity"
+        .....
+```
+
+同时修改 `system_audio_recorder\example\android\app\build.gradle` 中的 minSdkVersion 为 23
+
+最后在 `main.dart` 中编写开始录音和停止录音的代码即可
+
+```dart
+import 'package:flutter/foundation.dart';  
+import 'package:flutter/material.dart';  
+import 'dart:async';  
+  
+import 'package:flutter/services.dart';  
+import 'package:system_audio_recorder/system_audio_recorder.dart';  
+import 'package:permission_handler/permission_handler.dart';  
+  
+void main() {  
+  runApp(const MyApp());  
+}  
+  
+class MyApp extends StatefulWidget {  
+  const MyApp({super.key});  
+  
+  @override  
+  State<MyApp> createState() => _MyAppState();  
+}  
+  
+class _MyAppState extends State<MyApp> {  
+  String _platformVersion = 'Unknown';  
+  final _systemAudioRecorderPlugin = SystemAudioRecorder();  
+  requestPermissions() async {  
+    if (!kIsWeb) {  
+      if (await Permission.storage.request().isDenied) {  
+        await Permission.storage.request();  
+      }  
+      if (await Permission.photos.request().isDenied) {  
+        await Permission.photos.request();  
+      }  
+      if (await Permission.microphone.request().isDenied) {  
+        await Permission.microphone.request();  
+      }  
+    }  
+  }  
+  @override  
+  void initState() {  
+    super.initState();  
+    requestPermissions();  
+    initPlatformState();  
+  }  
+  
+  // Platform messages are asynchronous, so we initialize in an async method.  
+  Future<void> initPlatformState() async {  
+    String platformVersion;  
+    // Platform messages may fail, so we use a try/catch PlatformException.  
+    // We also handle the message potentially returning null.    try {  
+      platformVersion =  
+          await _systemAudioRecorderPlugin.getPlatformVersion() ?? 'Unknown platform version';  
+    } on PlatformException {  
+      platformVersion = 'Failed to get platform version.';  
+    }  
+  
+    // If the widget was removed from the tree while the asynchronous platform  
+    // message was in flight, we want to discard the reply rather than calling    // setState to update our non-existent appearance.    if (!mounted) return;  
+  
+    setState(() {  
+      _platformVersion = platformVersion;  
+    });  
+  }  
+  
+  @override  
+  Widget build(BuildContext context) {  
+    return MaterialApp(  
+      home: Scaffold(  
+        appBar: AppBar(  
+          title: const Text('Plugin example app'),  
+        ),  
+        body: Column(  
+          children: [  
+            Text('Running on: $_platformVersion\n'),  
+            TextButton(onPressed: () async {  
+              bool start = await SystemAudioRecorder.startRecord("test",  
+              titleNotification: "titleNotification",  
+                messageNotification: "messageNotification",  
+                sampleRate: 16000  
+              );  
+            }, child: const Text("开始录制")),  
+            TextButton(onPressed: ()async{  
+              String path = await SystemAudioRecorder.stopRecord;  
+              print(path);  
+            }, child: const Text("停止录制"))  
+          ]  
+        ),  
+      ),  
+    );  
+  }  
+}
+```
+
+
+#### 注意问题
+
+如果遇到 java.lang.SecurityException: Media projections require a foreground service of type ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION 这种错误时，如果确保已经添加权限，可能需要看一下ForegroundService的包名是否和插件的包名一致，如果一致，需要修改ForegroundService的包名，否则会报错。
+
+
+### 从Java中回传数据
+
+使用 EventChannel 可以从java中回传数据，以此来实现监听流的效果。
+
+#### 原生代码
+
+在原生代码中需要声明
+
+```kotlin
+private var eventSink: EventSink? = null
+private var binaryMessenger: BinaryMessenger? = null
+```
+
+在 `onAttachedToEngine` 函数中赋值 binaryMessenger
+
+```kotlin
+binaryMessenger = flutterPluginBinding.binaryMessenger;
+```
+
+在重载的方法调用函数 `onMethodCall` 设置监听函数
+
+```kotlin
+EventChannel(binaryMessenger, "system_audio_recorder/audio_stream").setStreamHandler(
+          object : StreamHandler {
+            override fun onListen(args: Any, events: EventSink?) {
+              Log.i(TAG, "Adding listener")
+              eventSink = events
+            }
+
+            override fun onCancel(args: Any) {
+              eventSink = null
+            }
+          }
+        )
+```
+
+在需要传数据的地方执行 `eventSink.success(data)`，不过可能会遇到  java.lang.RuntimeException: Methods marked with @UiThread must be executed on the main thread. 这个问题，需要采用下面的代码
+
+```kotlin
+activityBinding!!.activity.runOnUiThread{
+          eventSink!!.success(byte)
+        }
+```
+
+activityBinding 可以在 onAttachedToActivity 函数中赋值
+
+```kotlin
+ override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+    activityBinding = binding;
+    activityBinding!!.addActivityResultListener(this);
+  }
+  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+    activityBinding = binding;
+  }
+```
+
+
+#### 插件代码
+
+定义一个 EventChannel 静态变量即可
+
+```dart
+static const EventChannel audioStream = EventChannel('system_audio_recorder/audio_stream');
+```
+
+
+#### example 代码
+
+声明一个流订阅
+
+```dart
+StreamSubscription? _audioSubscription;
+```
+
+定义流订阅
+
+```dart
+if(_audioSubscription == null){
+  _audioSubscription = SystemAudioRecorder.audioStream.receiveBroadcastStream({"config": "null"}).listen((data){
+                  // print("${data.length}");
+                  allData.addAll(data);
+                });
+              }
+```
+
+这里的 receiveBroadcastStream 中需要配置参数，否则会报错。
+
+
+
 
 ## 入门知识
 
@@ -1165,97 +2240,67 @@ Provider.of<AppInfoProvider>(context).setTheme(key);
 
 ### 明暗切换
 
-明暗切换的思路与主题切换的思路相同。
+使用 adaptive_theme 库
 
-创建一个全局状态管理：
+使用 AdaptiveTheme 修饰 MaterialApp
 
 ```dart
-class DarkModeProvider with ChangeNotifier {
-  int _darkMode = 2;
-  int get darkMode => _darkMode;
-  void changeMode(int darkMode) async{
-    _darkMode = darkMode;
-    notifyListeners();
-    SpUtil.putInt("dark_mode", darkMode);
-  }
+import 'package:adaptive_theme/adaptive_theme.dart';
+import 'package:flutter/material.dart';
+
+void main() {
+  runApp(MyApp());
 }
-```
 
-在 mian.dart 中进行配置
+class MyApp extends StatelessWidget {
 
-| mode | 状态     |
-| ---- | -------- |
-| 0    | 明亮主题 |
-| 1    | 暗黑主题 |
-| 2    | 跟随系统 |
-
-```dart
-@override
+  @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider.value(value: DarkModeProvider())
-        ],
-      child: Consumer<DarkModeProvider>(
-        builder: (context, appInfo, child) {
-          return appInfo.darkMode == 2 ? MaterialApp(
-            title: "Flutter Demo",
-            theme: ThemeData(
-              primarySwatch: Colors.blue,
-            ),
-            darkTheme: ThemeData.dark(),
-            home: const MyHomePage(title: 'Flutter Demo Home Page'),
-          ) : MaterialApp(
-            title: "Flutter Demo",
-            theme: appInfo.darkMode == 1 ? ThemeData.dark() :ThemeData(
-              primarySwatch: Colors.blue
-            ),
-            home: const MyHomePage(title: 'Flutter Demo Home Page'),
-          );
-        },
+    return AdaptiveTheme(
+      light: ThemeData.light(useMaterial3: true),
+      dark: ThemeData.dark(useMaterial3: true),
+      initial: AdaptiveThemeMode.light,
+      builder: (theme, darkTheme) => MaterialApp(
+        title: 'Adaptive Theme Demo',
+        theme: theme,
+        darkTheme: darkTheme,
+        home: MyHomePage(),
       ),
     );
   }
-```
-
-想要配置主题时：
-
-```dart
-Provider.of<DarkModeProvider>(context, listen: false).changeMode(0); // 改为明亮主题
-```
-
-一个 UI 组件：
-
-```dart
-class lightDarkState extends State<lightDark> {
-  final List<bool> _selectedMode = <bool>[false, false, true];
-  @override
-  Widget build(BuildContext context) {
-    return ExpansionTile(
-      leading: const Icon(Icons.contrast),
-      title: const Text("明暗模式"),
-      children: [
-        ToggleButtons(
-          onPressed: (int index) {
-            setState(() {
-              for (int i = 0; i < _selectedMode.length; i++) {
-                _selectedMode[i] = i == index;
-              }
-            });
-            Provider.of<DarkModeProvider>(context, listen: false).changeMode(index);
-          },
-          isSelected: _selectedMode,
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
-          children: const [
-            Icon(Icons.light_mode), Icon(Icons.dark_mode), Icon(Icons.sync_sharp)
-          ],
-        )
-      ],
-    );
-  }
 }
 ```
 
+切换主题的方法
+
+```dart
+// sets theme mode to dark
+AdaptiveTheme.of(context).setDark();
+
+// sets theme mode to light
+AdaptiveTheme.of(context).setLight();
+
+// sets theme mode to system default
+AdaptiveTheme.of(context).setSystem();
+```
+
+
+设置主题
+
+```dart
+AdaptiveTheme.of(context).setTheme(
+  light: ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    colorSchemeSeed: Colors.purple,
+  ),
+  dark: ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.dark,
+    colorSchemeSeed: Colors.purple,
+  ),
+);
+```
 
 ### 为某个组件添加交互事件
 
@@ -1332,6 +2377,197 @@ File file = File(logPath);
 final contents = await file.readAsString();
 print(contents);
 ```
+
+
+## Getx 框架
+
+
+Getx框架集成了开发中许多重要内容（状态管理，依赖，路径等），这样方便开发。同时 Getx 简化了flutter中的许多设计，并且可以实现解耦视图和业务逻辑。
+
+
+### 一个例子：实现点击计数
+
+Getx 中使用 GetMaterialApp 替代 MaterialApp，跳转则使用 `Get.to()` 或者 `Get.back()` ，如 `Get.to(Other())` 表示跳转到 Other 界面。
+
+Getx 通过设置一个控制器来管理变量和方法等，如果需要变量可见，则后标 `.obs`。这样的好处在变量改变时更新组件，不再需要setState({})，而是直接用 `Obx` 修饰一个组件
+
+```dart
+class Controller extends GetxController{
+  var count = 0.obs;
+  increment() => count++;
+}
+
+class Home extends StatelessWidget {
+
+  @override
+  Widget build(context) {
+
+    final Controller c = Get.put(Controller());
+
+    return Scaffold(
+      // Use Obx(()=> to update Text() whenever count is changed.
+      appBar: AppBar(title: Obx(() => Text("Clicks: ${c.count}"))),
+```
+
+完整的示例如下
+
+```dart
+import 'package:flutter/material.dart';
+import "package:get/get.dart";
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  // This widget is the root of your application.
+  @override
+  Widget build(BuildContext context) {
+    return GetMaterialApp(
+      title: 'Flutter Demo',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+      ),
+      home: Home()
+    );
+  }
+}
+
+class Controller extends GetxController {
+  var count = 0.obs;
+  increment() => count++;
+}
+
+class Home extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final Controller c = Get.put(Controller());
+    return Scaffold(
+      appBar: AppBar(
+        title: Obx(() => Text("Clicks: ${c.count}")),
+      ),
+      body: Center(
+        child: ElevatedButton(
+            child: const Text("Go to Other"),
+            onPressed: () {
+              Get.to(Other());
+            }),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: c.increment,
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class Other extends StatelessWidget {
+  final Controller c = Get.find();
+
+  @override
+  Widget build(context) {
+    return Scaffold(body: Center(child: Text("${c.count}")));
+  }
+}
+```
+
+
+### 状态管理
+
+GetX 不像其他状态管理器那样使用 Streams 或 ChangeNotifier。为什么？除了为 android、 iOS、 web、 windows、 macos 和 linux 构建应用程序外，使用 GetX 还可以构建与 Flutter/GetX 语法相同的服务器应用程序。为了提高响应时间和降低内存消耗，Getx 创建了 GetValue 和 GetStream，这两个低延迟解决方案以较低的运营成本提供了大量的性能。我们使用这个基础来构建所有的资源，包括状态管理。
+
+#### 反应式状态管理器
+
+定义一个变量
+
+```dart
+var name = 'Jonatas Borges';
+```
+
+定义一个可观察的变量
+
+```dart
+var name = 'Jonatas Borges'.obs;
+```
+
+放在组件中
+
+```dart
+Obx (() => Text (controller.name));
+```
+
+该组件只会在 controller.name 变化时才变化。
+
+除了将单个变量转为可观察变量，还可以将整个类转为可观察
+
+```dart
+class User {
+  User({String name, int age});
+  var name;
+  var age;
+}
+
+// when instantianting:
+final user = User(name: "Camila", age: 18).obs;
+```
+
+为变量设置监听器，最好在初始化函数 onInit 中使用
+
+```dart
+/// Called every time `count1` changes.
+ever(count1, (_) => print("$_ has been changed"));
+
+/// Called only first time the variable $_ is changed
+once(count1, (_) => print("$_ was changed once"));
+
+/// Anti DDos - Called every time the user stops typing for 1 second, for example.
+debounce(count1, (_) => print("debouce$_"), time: Duration(seconds: 1));
+
+/// Ignore all changes within 1 second.
+interval(count1, (_) => print("interval $_"), time: Duration(seconds: 1));
+```
+
+
+#### 简单状态管理器
+
+...
+
+### 路由管理
+
+导航至一个新的页面
+
+```dart
+Get.to(NextScreen());
+```
+
+导航至带名字的新页面
+
+```dart
+Get.toNamed('/details');
+```
+
+
+Navigator.pop(context)
+
+```dart
+Get.back();
+```
+
+转到下一个屏幕，不能选择回到上一个屏幕(用于 SplashScreens、登录屏幕等)
+
+```dart
+Get.off(NextScreen());
+```
+
+转到下一个屏幕并取消所有以前的路线(在购物车、轮询和测试中很有用)
+
+```dart
+Get.offAll(NextScreen());
+```
+
 
 
 

@@ -1169,7 +1169,7 @@ void main() async {
 
 1. 直接在类外定义函数，如下所示
 
-这种方式的 compute 函数 isPrime 和 compute 调用的函数 _calculate 都需要放在 UI 组件定义的外面，即全局函数。使用时直接调用 compute 函数 isPrime 即可
+这种方式的 compute 函数 isPrime 和 compute 调用的函数 `_calculate` 都需要放在 UI 组件定义的外面，即全局函数。使用时直接调用 compute 函数 isPrime 即可
 
 ```dart
 Future<bool> isPrime(int value) {
