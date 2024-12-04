@@ -1048,7 +1048,7 @@ EventChannel(binaryMessenger, "system_audio_recorder/audio_stream").setStreamHan
 
 ```kotlin
 activityBinding!!.activity.runOnUiThread{
-          eventSink!!.success(byte)
+          eventSink?.success(byte)
         }
 ```
 
