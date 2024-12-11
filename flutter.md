@@ -104,6 +104,13 @@ dependencies:
 如果插件中申请了额外的权限和服务，也需要在android/src/main/AndroidManifest.xml 注明，直接从插件声明的地方复制粘贴过来即可。
 
 
+#### 上传插件
+
+[Flutter | 如何优雅的开发一个插件并发布到Dart仓库？如何开发 Flutter 插件，并发布到 Dart 仓库 - 掘金](https://juejin.cn/post/6961565875035963399)
+
+注意修改 pubspec.yaml 中的descrpition、添加 repository，此外还需要修改License。
+
+
 ### 录制系统播放的声音
 
 该插件基于flutter包 [flutter_screen_recording](https://pub.dev/packages/flutter_screen_recording) 和 github库 [SystemAudioCaptureAndroid](https://github.com/HarshSinghRajawat/SystemAudioCaptureAndroid)，实现了在安卓手机上录制系统播放声音的功能，也就是说，只要一个安卓应用没有[设置不允许其它应用录制声音](https://developer.android.google.cn/media/platform/av-capture?hl=en#constraining_capture_by_other_apps)，该插件可以录制该应用播放的声音。
@@ -1048,22 +1055,27 @@ EventChannel(binaryMessenger, "system_audio_recorder/audio_stream").setStreamHan
 
 ```kotlin
 activityBinding!!.activity.runOnUiThread{
-          eventSink?.success(byte)
-        }
+  eventSink?.success(byte)
+}
 ```
 
 activityBinding 可以在 onAttachedToActivity 函数中赋值
 
 ```kotlin
+ private var activityBinding: ActivityPluginBinding? = null;
+ 
  override fun onAttachedToActivity(binding: ActivityPluginBinding) {
     activityBinding = binding;
     activityBinding!!.addActivityResultListener(this);
   }
+  override fun onDetachedFromActivityForConfigChanges() {}
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
     activityBinding = binding;
   }
+  override fun onDetachedFromActivity() {}
 ```
 
+注意 onAttachedToActivity 和 onReattachedToActivityForConfigChanges 需要让插件类额外继承 import io.flutter.plugin.common.PluginRegistry.ActivityResultListener 和 ActivityAware
 
 #### 插件代码
 
@@ -2567,6 +2579,145 @@ Get.off(NextScreen());
 ```dart
 Get.offAll(NextScreen());
 ```
+
+
+
+## onnxruntime
+
+[onnxruntime | Flutter package](https://pub.dev/packages/onnxruntime)
+
+onnxruntime 用于在flutter中运行神经网络。
+
+### 引用
+
+将onnx后缀的模型放在 assets 文件夹中，并在 pubspec.yaml 中注明 assets 
+
+```yaml
+assets:  
+  - assets/
+```
+
+如果在安卓中运行，那么大概率会遇到缺少 libonnxruntime.so 的错误，有两种解决方法：
+
+1. 从[Maven Repository: com.microsoft.onnxruntime » onnxruntime-android » 1.18.0 (mvnrepository.com)](https://mvnrepository.com/artifact/com.microsoft.onnxruntime/onnxruntime-android/latest) 下载对应的文件，下载文件的入口在表格的 Files 一栏中，下载 aar 文件，下载好后，将 aar 后缀改为 zip 后缀，解压后可以在 jni 文件夹找到 so 文件，将其复制到build/app/intermediates/merged_native_libs 和 build/app/intermediates/stripped_native_libs 这两个文件夹。
+2. 在 `android/app/build.gradle` 中添加 maven 依赖（和第一种解决方法中相同的地址），同时可能遇到 Execution failed for task ':app:mergeDebugNativeLibs' 错误，需要添加 packagingOptions
+```json
+android {  
+
+    // 解决下面这个错误  
+    // Execution failed for task ':app:mergeDebugNativeLibs'.  
+    //> A failure occurred while executing com.android.build.gradle.internal.tasks.MergeNativeLibsTask$MergeNativeLibsTaskWorkAction    
+    packagingOptions {  
+        pickFirst 'lib/x86/libonnxruntime.so'  
+        pickFirst 'lib/x86_64/libonnxruntime.so'  
+        pickFirst 'lib/armeabi-v7a/libonnxruntime.so'  
+        pickFirst 'lib/arm64-v8a/libonnxruntime.so'  
+    }  
+	//...
+}  
+dependencies {  
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'  
+}
+```
+
+注意第二种方法可能遇到 build\app\intermediates\flutter\debug\flutter_assets\assets 文件夹model.onnx 无法自动删除导致错误，可以手动删除。
+
+### 基本使用
+
+在 `main.dart` 的 `initState` 初始化环境，在 `dispose` 时释放环境
+
+```dart
+// 需要在初始化模型之前初始化环境
+void initOrtEnv(){  
+  OrtEnv.instance.init();  
+  OrtEnv.instance.availableProviders().forEach((element) {  
+    print('onnx provider=$element');  
+  });  
+}
+
+void releaseOrtEnv(){  
+  OrtEnv.instance.release();  
+}
+```
+
+可以将一个模型的推理过程放在一个类中，在这个类初始化模型，释放模型，完成推理
+
+```dart
+class Model{  
+  OrtSessionOptions? _sessionOptions;  
+  OrtSession? _session;  
+  bool isInitialed = false;  
+  
+  var input2 = OrtValueTensor.createTensorWithDataList(Float32List.fromList(List.filled(64, 0.0)));  
+  
+  Model();  
+    
+  // 在 dispose() 时调用  
+  release() {  
+    _sessionOptions?.release();  
+    _sessionOptions = null;  
+    _session?.release();  
+    _session = null;  
+  }  
+    
+  // 在 initState() 时调用  
+  Future<bool> initModel() async {  
+    _sessionOptions = OrtSessionOptions()  
+      ..setInterOpNumThreads(1)  
+      ..setIntraOpNumThreads(1)  
+      ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);  
+    final rawAssetFile = await rootBundle.load("assets/model.onnx");  
+    final bytes = rawAssetFile.buffer.asUint8List();  
+    _session = OrtSession.fromBuffer(bytes, _sessionOptions!);  
+    return true;  
+  }  
+    
+  // 重置状态  
+  void reset(){  
+    input2 = OrtValueTensor.createTensorWithDataList(Float32List.fromList(List.filled(64, 0.0)));  
+  }  
+    
+  // 异步预测  
+  Future<List<double>?> predictASync(List<List<int>> frames) {  
+    return compute(predict, frames);  
+  }  
+    
+  List<double>? predict(List<List<int>> frames) {  
+      
+    final input1 = OrtValueTensor.createTensorWithDataList(  
+   Float32List.fromList(List.filled(64, 0.0)) , [1, 64]);
+  
+    final runOptions = OrtRunOptions();  
+    final inputs = {"input1": input1, "input2": input2};  
+    final List<OrtValue?>? outputs;  
+  
+    outputs = _session?.run(runOptions, inputs);  
+    input1.release();  
+    runOptions.release();  
+  
+    List<double> output1 = (outputs?[0]?.value as List<List<double>>)[0];
+    input2 = OrtValueTensor.createTensorWithDataList(outputs?[1]?.value as List<double>);  
+  
+    outputs?.forEach((element) {  
+      element?.release();  
+    });  
+  
+    return output1;  
+  }  
+}
+```
+
+
+
+> [!NOTE] 
+> 一般来说模型的输入需要是Float32List，输出需要被转为类似 `List<double>` 类型
+
+
+
+> [!NOTE] 
+> 如果只需要语音识别、语音合成、说话人识别等语音相关功能，可以考虑使用 sherpa_onnx 库
+
+
 
 
 
