@@ -22,7 +22,9 @@ flutter build apk
 flutter build apk -t lib\main_1.dart
 ```
 
-## 插件开发
+
+
+## Java/Kotlin插件开发
 
 ### 基本知识
 
@@ -278,7 +280,6 @@ class ForegroundService : Service() {
   
 }
 ```
-
 
 
 `SystemAudioRecorderPlugin` 的内容如下
@@ -1038,17 +1039,17 @@ binaryMessenger = flutterPluginBinding.binaryMessenger;
 
 ```kotlin
 EventChannel(binaryMessenger, "system_audio_recorder/audio_stream").setStreamHandler(
-          object : StreamHandler {
-            override fun onListen(args: Any, events: EventSink?) {
-              Log.i(TAG, "Adding listener")
-              eventSink = events
-            }
+    object : StreamHandler {
+        override fun onListen(args: Any, events: EventSink?) {
+            Log.i(TAG, "Adding listener")
+            eventSink = events
+        }
 
-            override fun onCancel(args: Any) {
-              eventSink = null
-            }
-          }
-        )
+        override fun onCancel(args: Any) {
+            eventSink = null
+        }
+    }
+)
 ```
 
 在需要传数据的地方执行 `eventSink.success(data)`，不过可能会遇到  java.lang.RuntimeException: Methods marked with @UiThread must be executed on the main thread. 这个问题，需要采用下面的代码
@@ -1062,17 +1063,17 @@ activityBinding!!.activity.runOnUiThread{
 activityBinding 可以在 onAttachedToActivity 函数中赋值
 
 ```kotlin
- private var activityBinding: ActivityPluginBinding? = null;
- 
- override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+private var activityBinding: ActivityPluginBinding? = null;
+
+override fun onAttachedToActivity(binding: ActivityPluginBinding) {
     activityBinding = binding;
     activityBinding!!.addActivityResultListener(this);
-  }
-  override fun onDetachedFromActivityForConfigChanges() {}
-  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+}
+override fun onDetachedFromActivityForConfigChanges() {}
+override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
     activityBinding = binding;
-  }
-  override fun onDetachedFromActivity() {}
+}
+override fun onDetachedFromActivity() {}
 ```
 
 注意 onAttachedToActivity 和 onReattachedToActivityForConfigChanges 需要让插件类额外继承 import io.flutter.plugin.common.PluginRegistry.ActivityResultListener 和 ActivityAware
@@ -1098,17 +1099,520 @@ StreamSubscription? _audioSubscription;
 
 ```dart
 if(_audioSubscription == null){
-  _audioSubscription = SystemAudioRecorder.audioStream.receiveBroadcastStream({"config": "null"}).listen((data){
-                  // print("${data.length}");
-                  allData.addAll(data);
-                });
-              }
+    _audioSubscription = SystemAudioRecorder.audioStream.receiveBroadcastStream({"config": "null"}).listen((data){
+        // print("${data.length}");
+        allData.addAll(data);
+    });
+}
 ```
 
 这里的 receiveBroadcastStream 中需要配置参数，否则会报错。
 
 
 
+
+
+
+
+
+
+## 基于 C++ 插件开发
+
+
+
+
+
+[向您的项目添加 C 和 C++ 代码  | Android Studio  | Android Developers](https://developer.android.google.cn/studio/projects/add-native-code?hl=zh-cn)
+
+
+
+一个示例插件：[Xiang-M-J/flutter_jni_plugin_example](https://github.com/Xiang-M-J/flutter_jni_plugin_example)
+
+
+
+
+
+一些功能可能难以使用 `Java/Kotlin` 编写，如某些硬件可能只提供了 C++ 库作为操作接口，为了调用这些库，可以考虑使用 JNI 技术在 Java 中调用 C++/C。
+
+
+
+
+
+### 基本知识
+
+
+
+
+
+在 Android Studio 中新建一个 Native C++ 项目 `test_jni`，默认情况下在 `test_jni\android\app\src\main` 目录下有 `cpp`、`java` 和 `res` 三个文件夹，其中 `res` 文件夹不需要管，`cpp` 文件夹用于存放 C++ 程序，其中有 `CMakeLists.txt` 用于指定编译的文件，`native-lib.cpp` 中为 jni 的接口函数。 `java` 文件夹用来存放调用 jni 程序的代码。
+
+
+
+`CMakeLists.txt` 的内容如下
+
+
+
+```cmake
+cmake_minimum_required(VERSION 3.22.1)
+
+project("test_jni")
+
+add_library(${CMAKE_PROJECT_NAME} SHARED
+        # List C/C++ source files with relative paths to this CMakeLists.txt.
+        native-lib.cpp)
+
+target_link_libraries(${CMAKE_PROJECT_NAME}
+        # List libraries link to the target library
+        android
+        log)
+```
+
+
+
+
+
+`native-lib.cpp` 的内容如下
+
+
+
+
+
+```cpp
+#include <jni.h>
+#include <string>
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_example_test_1jni_MainActivity_stringFromJNI(
+        JNIEnv* env,
+        jobject /* this */) {
+    std::string hello = "Hello from C++";
+    return env->NewStringUTF(hello.c_str());
+}
+```
+
+
+
+
+
+`MainActivity.kt` 的内容如下
+
+
+
+```kotlin
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityMainBinding
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        // Example of a call to a native method
+        binding.sampleText.text = stringFromJNI()
+    }
+
+    external fun stringFromJNI(): String
+
+    companion object {
+        // Used to load the 'test_jni' library on application startup.
+        init {
+            System.loadLibrary("test_jni")
+        }
+    }
+}
+```
+
+
+
+
+
+此外在`test_jni\android\app\build.gradle` 中添加了指定 `CMakeLists.txt` 的配置
+
+
+
+```json
+android{
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+}
+```
+
+
+
+
+
+上面的内容可以直接移植到其它项目，如flutter插件项目。
+
+
+
+
+
+如果 `C++`中调用了一些链接库， 可以在 `test_jni\android\app\src\main` 目录下创建`jniLibs` 文件夹存放这些链接库，一般是 `.so` 文件。`jniLibs` 文件夹的结构一般如下
+
+
+
+```
+jniLibs
+	- arm64-v8a
+		- librknnrt.so
+	- armeabi-v7a
+		- librknnrt.so
+```
+
+
+
+
+
+然后在 `CMakeLists.txt` 中的 `target_link_libraries` 添加链接库路径（具体根据实际情况来定）
+
+
+
+```cmake
+cmake_minimum_required(VERSION 3.22.1)
+
+project("test_rknn")
+
+add_library(${CMAKE_PROJECT_NAME} SHARED
+        # List C/C++ source files with relative paths to this CMakeLists.txt.
+        native-lib.cpp
+        model.cpp
+        model.h
+        Float16.h
+)
+
+target_link_libraries(${CMAKE_PROJECT_NAME}
+        # List libraries link to the target library
+        android
+        log
+        ${CMAKE_SOURCE_DIR}/../jniLibs/${CMAKE_ANDROID_ARCH_ABI}/librknnrt.so
+)
+```
+
+
+
+
+
+然后在 `import_rknn\android\build.gradle` 中指定 `C/C++` 的编译方式，如果使用的链接库仅支持部分架构，可以添加架构过滤器。
+
+
+
+```json
+android {
+    // ...
+
+    defaultConfig {
+        minSdk = 21
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a' // 仅构建所需的架构
+        }
+    }
+	// ...
+
+    externalNativeBuild {  // 指定 CMakeLists.txt
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+}
+
+```
+
+
+
+
+
+> [!NOTE] 
+>
+> 如果希望添加新的 `jni` 函数，可以现在 Kotlin 文件中定义函数
+>
+> 
+>
+> ```kotlin
+> external fun initModel(modelData: ByteArray, modelLength: Int): Boolean
+> ```
+>
+> 然后利用 Android Studio 自带的纠错功能在 native-lib.cpp 中添加函数。
+
+
+
+
+
+
+
+### 常用功能
+
+
+
+下面介绍一些 c++ 端的常用功能
+
+#### 日志功能
+
+
+
+
+
+输出信息和错误的函数（使用 printf 输出不会显示）
+
+
+
+```cpp
+#include <android/log.h>
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "rktest", ##__VA_ARGS__);
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "rktest", ##__VA_ARGS__);
+
+
+// use
+LOGI("hello, %d", 1)
+```
+
+
+
+
+
+
+
+#### 数据类型转换
+
+
+
+
+
+**ByteArray (Kotlin), jbyteArray (jni) 转 uint8_t * (c++)**
+
+
+
+
+
+```cpp
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_example_import_1rknn_ImportRknnPlugin_initModel(JNIEnv *env, jobject thiz,
+                                                         jbyteArray model_data) {
+    uint32_t model_len = env->GetArrayLength(model_data);
+    LOGI("model length: %d", model_len)
+    jbyte* byteArray = env->GetByteArrayElements(model_data, nullptr);
+
+    uint8_t * u8_model_data = new uint8_t [model_len];
+    memcpy(u8_model_data, byteArray, model_len);
+    env->ReleaseByteArrayElements(model_data, byteArray, JNI_ABORT);
+    return init_model(u8_model_data, model_len);
+}
+```
+
+
+
+
+
+**FloatArray (Kotlin), jfloatArray (jni) 转 jfloat * (c++)**
+
+
+
+
+
+```cpp
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_import_1rknn_ImportRknnPlugin_inference(JNIEnv *env, jobject thiz, jfloatArray mic, jfloatArray spec) {
+    jboolean inputCopy = JNI_FALSE;
+    jboolean outputCopy = JNI_FALSE;
+
+    jfloat * const jmic = env->GetFloatArrayElements(mic, &inputCopy);
+    jfloat * const jspec = env->GetFloatArrayElements(spec, &outputCopy);
+    
+    inference(jmic, jspec);
+
+    env->ReleaseFloatArrayElements(mic, jmic, 0);
+    return 0;
+}
+```
+
+
+
+
+
+
+
+
+
+## build.gradle 任务
+
+
+
+### Debug 任务
+
+
+
+在 android/app/build.gradle 中
+
+```json
+
+// 复制链接
+task copyMergedNativeLibs(type: Copy){
+    from "../../native-libs/libs/"
+    include "*/*.so"
+    into "../../build/app/intermediates/merged_native_libs/debug/out/lib/"
+}
+
+// 复制链接
+task copyStrippedNativeLibs(type: Copy){
+    from "../../native-libs/libs/"
+    include "*/*.so"
+    into "../../build/app/intermediates/merged_native_libs/debug/out/lib/"
+}
+
+// 清理文件
+task cleanTempFiles(type: Delete) {
+    delete fileTree(dir: '../../build/app/intermediates/flutter/debug/flutter_assets/assets', include: '*.onnx')
+}
+
+preBuild.dependsOn copyMergedNativeLibs
+preBuild.dependsOn copyStrippedNativeLibs
+preBuild.dependsOn cleanTempFiles
+```
+
+### release 任务
+
+
+
+```json
+
+task preReleaseBuildTask{
+
+    delete fileTree(dir: '../../build/app/intermediates/flutter/release/flutter_assets/assets', include: '*.onnx')
+    copy{
+        from ("../../native-libs/libs/")
+        include ("*/*.so")
+        into ("../../build/app/intermediates/merged_native_libs/release/out/lib/")
+    }
+    copy{
+        from ("../../native-libs/libs/")
+        include ("*/*.so")
+        into ("../../build/app/intermediates/merged_native_libs/release/out/lib/")
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name == 'assembleRelease') {
+        task.dependsOn preReleaseBuildTask
+    }
+}
+
+```
+
+
+
+## 编写链接库
+
+
+### flutter端
+
+一般使用 C/C++ 编写链接库，C/C++端只需要按照一般的情况去编写代码即可，尽量不去引用其它库。
+
+为了将 C/C++ 文件编译成适合Android平台的链接库，需要创建一个CMake项目
+
+```cmake
+# The Flutter tooling requires that developers have CMake 3.10 or later
+# installed. You should not increase this version, as doing so will cause
+# the plugin to fail to compile for some customers of the plugin.
+cmake_minimum_required(VERSION 3.10)
+
+project(stft_qmf_library VERSION 0.0.1 LANGUAGES C)
+
+# 函数实现
+add_library(stft_qmf SHARED
+  "qmf.c" "stft.c"
+)
+
+# 在 spl.h 中定义好所有需要用到的函数
+set_target_properties(stft_qmf PROPERTIES
+  PUBLIC_HEADER spl.h  
+  OUTPUT_NAME "stft_qmf"
+)
+
+target_compile_definitions(stft_qmf PUBLIC DART_SHARED_LIB)
+```
+
+此外需要创建 `Android.mk` 和 `Application.mk`
+
+**Android.mk**
+
+```makefile
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := libSpl
+LOCAL_C_INCLUDES := qmf.h spl.h
+LOCAL_SRC_FILES := qmf.c stft.c
+
+LOCAL_LDLIBS := -llog
+
+include $(BUILD_SHARED_LIBRARY)
+```
+
+**Application.mk**
+
+```makefile
+ APP_ABI := arm64-v8a armeabi-v7a x86 x86_64
+```
+
+编写一个脚本来编译
+
+```sh
+D:\android-ndk-r26d\build\ndk-build NDK_PROJECT_PATH=. NDK_APPLICATION_MK=Application.mk APP_BUILD_SCRIPT=Android.mk
+```
+
+
+如果不想手动复制链接，可以在 `android/app/build.gradle` 中定义复制任务，先在项目根目录下创建一个 native-libs 文件夹，再将链接库放在其中
+
+```json
+task copyMergedNativeLibs(type: Copy){  
+    from "../../native-libs/libs/"  
+    include "*/*.so"  
+    into "../../build/app/intermediates/merged_native_libs/debug/out/lib/"  
+}  
+  
+task copyStrippedNativeLibs(type: Copy){  
+    from "../../native-libs/libs/"  
+    include "*/*.so"  
+    into "../../build/app/intermediates/merged_native_libs/debug/out/lib/"  
+}  
+  
+preBuild.dependsOn copyMergedNativeLibs  
+preBuild.dependsOn copyStrippedNativeLibs
+```
+
+
+### 链接库的一些说明
+
+如果需要重复调用一段程序，并且存在一些状态值，如使用数组 `x` 保存之前运算的部分结果，不需要每次都将 `x` 传入程序，而是直接在程序中定义即可，如
+
+```c
+short x[NUM] = { 0 };
+
+void process(short *in, float *out){
+	memcpy(&x[NUM / 2], in, sizeof(short) * NUM / 2);
+	for(int i=0; i<NUM; i++){
+		out[i] = in[i] * 2;
+	}
+}
+```
+
+上面这段程序让 `x` 保留输入的后 `NUM/2` 点数据，直接定义 `x` 并在函数中修改即可，在应用运行时，`x` 的状态会一直保持并更新。
+
+如果需要开始一次新的计算，可以编写一个重置函数来重置 `x`
+
+```c
+void reset(){
+	memset(&x, 0, sizeof(short) * NUM);
+}
+```
 
 ## 入门知识
 
@@ -1124,7 +1628,6 @@ flutter run
 ```
 
 `flutter pub add <package>`：添加包
-
 
 
 flutter 构建 App，在项目路径下执行
@@ -1150,8 +1653,6 @@ flutter build web --web-renderer html
 ```sh
 flutter build web --release
 ```
-
-
 
  
 
@@ -2620,7 +3121,18 @@ dependencies {
 }
 ```
 
-注意第二种方法可能遇到 build\app\intermediates\flutter\debug\flutter_assets\assets 文件夹model.onnx 无法自动删除导致错误，可以手动删除。
+注意第二种方法可能遇到 build\app\intermediates\flutter\debug\flutter_assets\assets 文件夹model.onnx 无法自动删除导致错误，可以手动删除。或者在 `android/app/build.gradle` 添加删除任务
+
+```json
+android{
+//...
+}
+task cleanTempFiles(type: Delete) {  
+    delete fileTree(dir: '../../build/app/intermediates/flutter/debug/flutter_assets/assets', include: '*.onnx')
+}  
+
+preBuild.dependsOn cleanTempFiles
+```
 
 ### 基本使用
 
@@ -2718,8 +3230,87 @@ class Model{
 > 如果只需要语音识别、语音合成、说话人识别等语音相关功能，可以考虑使用 sherpa_onnx 库
 
 
+### 在 Isolate 中推理
 
+虽然大部分情况下使用 compute 就可以满足需要，但是部分场景（如每隔 10ms 调用一次模型）下可能会造成一些问题，可以将模型的推理放在 isolate 中。
 
+首先定义 ReceivePort 和 SendPort
+
+```dart
+ReceivePort? receivePort;  
+SendPort? sendPort;
+```
+
+在 initState 中初始化端口
+
+```dart
+receivePort = ReceivePort();  
+receivePort?.listen((msg) {  
+  if (msg is SendPort){  
+    sendPort = msg;  
+  }else if (msg is List<double>){  
+    processCache = msg;  
+  
+    processStream.update(processCache);  
+    setState(() {  
+  
+    });  
+    Uint8List u8Data = doubleList2Uint8List(msg);  
+    processFileStream?.update(u8Data);  
+  }else if (msg == null){  
+    print("result is null");  
+  }  
+});  
+await Isolate.spawn(isolateTask, receivePort!.sendPort);  
+  
+final rawAssetFile = await rootBundle.load("assets/msa_dpcrn.onnx");  
+final bytes = rawAssetFile.buffer.asUint8List();  
+  
+sendPort?.send(bytes);
+```
+
+需要注意的是模型只能在新开辟的 isolate 中初始化，并且由于在加载模型时需要使用 rootBundle，但是 rootBundle 只能在主 isolate 中使用，只能先加载好模型参数，将模型参数传入新的 isolate 中。
+
+isolateTask 是静态函数，不能是类函数
+
+```dart
+void isolateTask(SendPort port) async {  
+  // initOrtEnv();    // 不能放在这里，虽然不会报错，但是模型输出结果为null
+  MsaDpcrn msaAce = MsaDpcrn();  
+  
+  final receivePort = ReceivePort();  
+  port.send(receivePort.sendPort);  
+  
+  await for (var msg in receivePort) {  
+    if (msg is String) {  
+      if (msg == "exit") {  
+        msaAce.release();  
+        // port.send("will release");  
+        // releaseOrtEnv(); 
+        Isolate.exit(receivePort.sendPort);  
+      } else if (msg == "reset") {  
+        msaAce.reset();  
+        // port.send("has reset");  
+      }  
+    } else if (msg is Uint8List) {  
+      await msaAce.initModelByBuffer(msg);  
+    } else if (msg is List<List<int>>) {  
+      List<double>? result = msaAce.predictMultiFrames(msg);  
+      port.send(result);  
+    } else {  
+      print("unknown msg type");  
+    }  
+  }  
+}
+```
+
+>注意初始化 Onnx 环境和释放 Onnx 环境都需要在主 isolate 中实现，而不能在新开辟的 isolate 中实现
+
+如果需要进行推理，通过 sendPort 传入数据
+
+```dart
+sendPort?.send([micFrame, refFrame]);
+```
 
 
 ## 报错
