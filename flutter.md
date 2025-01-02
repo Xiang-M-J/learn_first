@@ -26,6 +26,12 @@ flutter build apk -t lib\main_1.dart
 
 ## Java/Kotlin插件开发
 
+
+
+> [!WARNING] Title
+> 如果需要在 flutter 端和原生端之间传输大量数据，两者之间的通信是需要花费明显的时间，可能达到20ms。
+
+
 ### 基本知识
 
 
@@ -1141,16 +1147,9 @@ if(_audioSubscription == null){
 ### 基本知识
 
 
-
-
-
 在 Android Studio 中新建一个 Native C++ 项目 `test_jni`，默认情况下在 `test_jni\android\app\src\main` 目录下有 `cpp`、`java` 和 `res` 三个文件夹，其中 `res` 文件夹不需要管，`cpp` 文件夹用于存放 C++ 程序，其中有 `CMakeLists.txt` 用于指定编译的文件，`native-lib.cpp` 中为 jni 的接口函数。 `java` 文件夹用来存放调用 jni 程序的代码。
 
-
-
 `CMakeLists.txt` 的内容如下
-
-
 
 ```cmake
 cmake_minimum_required(VERSION 3.22.1)
@@ -1388,8 +1387,6 @@ LOGI("hello, %d", 1)
 
 
 
-
-
 ```cpp
 extern "C"
 JNIEXPORT jboolean JNICALL
@@ -1408,12 +1405,7 @@ Java_com_example_import_1rknn_ImportRknnPlugin_initModel(JNIEnv *env, jobject th
 
 
 
-
-
 **FloatArray (Kotlin), jfloatArray (jni) 转 jfloat * (c++)**
-
-
-
 
 
 ```cpp
@@ -1434,10 +1426,13 @@ Java_com_example_import_1rknn_ImportRknnPlugin_inference(JNIEnv *env, jobject th
 ```
 
 
+**float * 转 jfloatArray (jni)**
 
-
-
-
+```cpp
+float *spec = (float *) malloc(frameSize * sizeof(float ));
+jfloatArray jspec = env->NewFloatArray(frameSize);  
+env->SetFloatArrayRegion(jspec, 0, frameSize, spec);
+```
 
 
 
