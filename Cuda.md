@@ -1,3 +1,63 @@
+## conda
+
+### conda 环境管理
+
+#### 创建环境
+
+> `conda create --name`  
+
+```bash
+# 创建一个名为meachineLearning的环境，指定Python版本是3.5（不用管是3.5.x，conda会为我们自动寻找3.５.x中的最新版本）
+conda create --name meachineLearning python=3.5
+```
+
+#### 激活环境
+
+> conda activate 
+
+```bash
+conda activate meachineLearing
+```
+
+#### 返回主环境
+
+> conda deactivate
+
+```bash
+conda deactivate meachingLearning
+```
+
+#### 删除环境
+
+> conda remove
+
+```bash
+# 删除一个已有的环境
+conda remove --name meachineLearning --all
+```
+
+#### 查看系统中的所有环境
+
+```bash
+conda info -e
+```
+
+### conda包管理
+
+#### 安装库
+
+```bash
+conda install numpy
+```
+
+#### 查看已经安装的库
+
+```bash
+conda list
+conda list -n meachineLearning
+```
+
+
 
 ## 编译环境
 
@@ -30,6 +90,8 @@ cmake --build build
 首先添加编译工具，参考 [Tutorial: Configure CLion on Windows | CLion Documentation (jetbrains.com)](https://www.jetbrains.com/help/clion/quick-tutorial-on-configuring-clion-on-windows.html#MSVC)。在 File | Settings | Build, Execution, Deployment | Toolchains 中点击 + 添加 Visual Studio，在 Toolset 一栏中填入 Visual Studio 的安装位置如 D:\VisualStudio\Community，等待检测完毕即可。
 
 随后在 File | Settings | Build, Execution, Deployment | Cmake 中设置 Toolchain 为刚才设置的 Visual Studio，Generator 为 Visual Studio xx xxxx（安装的 VS 版本）。
+
+
 
 
 ### C 工程引入cuda
