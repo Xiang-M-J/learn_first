@@ -106,8 +106,6 @@ def retranslateUi(self, Widget):
 ```
 
 
-带参数的
-
 ### 编译程序
 
 使用 pyinstaller 来编译应用程序
