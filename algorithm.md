@@ -457,7 +457,9 @@ V(B1)=0.1 V(B2)=0 V(B3)=0 V(B4)=0
 ### 最大流算法
 
 #### Ford-Fulkerson算法
+
 [Ford-Fulkerson Algorithm for Maximum Flow Problem - GeeksforGeeks](https://www.geeksforgeeks.org/ford-fulkerson-algorithm-for-maximum-flow-problem/)
+
 该算法的工作原理是迭代地寻找一条增广路径，这条路径是残差图中从源点（起点）到汇点（终点）的路径，也就是通过从每个边的容量中减去当前流量得到的图。然后，该算法将沿着该路径的流量增加到可能的最大值，即沿着该路径的边的最小容量。
 给出一个图，表示每个边都有容量的流网络。同时，给定图中的两个顶点源`s`和汇`t`，找出从`s`到`t`的最大可能流，并附加以下约束条件：
 + 边流量不会超过给定的容量
@@ -477,8 +479,10 @@ V(B1)=0.1 V(B2)=0 V(B3)=0 V(B4)=0
 
 
 ### Graham-Scan算法
+
 [Convex Hull using Graham Scan - GeeksforGeeks](https://www.geeksforgeeks.org/convex-hull-using-graham-scan/)
-寻找点集合的凸包（集合中包围所有点所需的最小的凸多面体），时间复杂度为$O(n\log n)$，
+
+寻找点集合的凸包（集合中包围所有点所需的最小的凸多面体），时间复杂度为$O(n\log n)$
 
 #### 算法流程
 `points[0,..,n-1]`是输入的集合
@@ -2278,6 +2282,7 @@ typedef struct node
 1. 插入的新节点`N`是红黑树的根节点，这个时候直接把节点`N`的颜色变为黑色即可，可以满足性质2（根节点为黑色），性质5（任一节点到其每个叶子的所有简单路径都包含相同数目的黑色节点）；
 2. `N`的父节点是黑色，此时无需调整；
 3. `N`的父节点`P`为红色，叔叔节点`U`也为红色，此时`P`的父节点`G`肯定为黑色，如下图所示（G_B表示黑色节点G），此时性质4被打破，需要进行调整
+
 ```mermaid
 graph TB
 G_B --- P_R
