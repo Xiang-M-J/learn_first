@@ -33,3 +33,19 @@ Triton 是一个专门为深度学习和高性能计算任务设计的编程语�
 
 仅支持cuda12.x
 [woct0rdho/triton-windows: Fork of the Triton language and compiler for Windows support](https://github.com/woct0rdho/triton-windows) 提供了适用于Windows平台的triton whl文件
+
+
+## Mamba 
+
+一个新的网络架构
+
+目前只能在linux下运行
+
+先下载 causal-conv1d，注意最好用 pip 下载，可能需要加上代理
+
+```sh
+pip install causal-conv1d --proxy=156.238.18.163:2095
+```
+
+再下载mamba，这里直接在[state-spaces/mamba: Mamba SSM architecture](https://github.com/state-spaces/mamba) 找到符合条件的whl文件下载再安装。
+
