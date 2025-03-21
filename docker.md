@@ -8,6 +8,10 @@
 
 [Windows安装使用Docker，方便你的开发和部署(DockerDesktop篇)_windows安装docker-CSDN博客](https://blog.csdn.net/qq_60750453/article/details/128636298)
 
+
+如果一些镜像太大，无法直接pull，可以考虑在国内的镜像网站中pull，如 [渡渡鸟镜像同步站](https://docker.aityp.com/)
+
+
 #### 查看系统版本和内核版本
 
 查看系统版本和内核版本判断是否满足要求
