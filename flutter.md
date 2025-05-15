@@ -1,6 +1,6 @@
-API文档：https://api.flutter.dev/flutter
+API 文档：https://api.flutter.dev/flutter
 
-[本章目录 | 《Flutter实战·第二版》 (flutterchina.club)](https://book.flutterchina.club/chapter1/)
+[本章目录 | 《Flutter 实战·第二版》 (flutterchina.club)](https://book.flutterchina.club/chapter1/)
 
 
 
@@ -16,7 +16,7 @@ flutter build apk
 
 > 如果发现构建的 apk 在 debug 模式下能用，但是在 release 模式下不能用，如果 app 中使用了动态链接库，那么很有可能是因为 release 模式的 apk 没有加上动态链接库，需要检查一下。
 
-如果有多个入口文件，可以用如下方式编译apk
+如果有多个入口文件，可以用如下方式编译 apk
 
 ```cmd
 flutter build apk -t lib\main_1.dart
@@ -24,12 +24,12 @@ flutter build apk -t lib\main_1.dart
 
 
 
-## Java/Kotlin插件开发
+## Java/Kotlin 插件开发
 
 
 
 > [!WARNING] Title
-> 如果需要在 flutter 端和原生端之间传输大量数据，两者之间的通信是需要花费明显的时间，可能达到20ms。
+> 如果需要在 flutter 端和原生端之间传输大量数据，两者之间的通信是需要花费明显的时间，可能达到 20ms。
 
 
 ### 基本知识
@@ -37,7 +37,7 @@ flutter build apk -t lib\main_1.dart
 
 #### 如何创建插件
 
-在开发flutter应用时，有时需要自己开发原生插件，创建插件的命令如下
+在开发 flutter 应用时，有时需要自己开发原生插件，创建插件的命令如下
 
 ```sh
 flutter create --org com.example -t plugin --platform android plugin_name
@@ -58,11 +58,11 @@ flutter create --template=plugin --platforms=web .
 
 创建好的插件工程具体有以下三个目录
 
-- android: Android的原生代码
-- example: 一个Flutter的实例项目，用来展示、测试你开发的plugin的
-- lib: Plugin的Dart代码
+- android: Android 的原生代码
+- example: 一个 Flutter 的实例项目，用来展示、测试你开发的 plugin 的
+- lib: Plugin 的 Dart 代码
 
-假设创建了一个插件工程 `test_plugin`，最好不要通过android studio 打开 `test_plugin`来修改原生代码，而是要打开 `test_plugin/android` 来修改原生代码，这样才能正确地构建项目，同步gradle包。此外还需要在 `android\build.gradle`中添加下面这些内容配置flutter
+假设创建了一个插件工程 `test_plugin`，最好不要通过 android studio 打开 `test_plugin` 来修改原生代码，而是要打开 `test_plugin/android` 来修改原生代码，这样才能正确地构建项目，同步 gradle 包。此外还需要在 `android\build.gradle` 中添加下面这些内容配置 flutter
 
 ```gradle
 //获取local.properties配置文件  
@@ -90,7 +90,7 @@ dependencies {
 
 #### 本地使用插件
 
-在flutter工程目录中新建plugins文件夹用来存放本地插件，在`pubspec.yaml` 中添加以下代码
+在 flutter 工程目录中新建 plugins 文件夹用来存放本地插件，在 `pubspec.yaml` 中添加以下代码
 
 ```yaml
 dependencies:
@@ -109,21 +109,21 @@ dependencies:
 ```
 
 
-如果插件中申请了额外的权限和服务，也需要在android/src/main/AndroidManifest.xml 注明，直接从插件声明的地方复制粘贴过来即可。
+如果插件中申请了额外的权限和服务，也需要在 android/src/main/AndroidManifest.xml 注明，直接从插件声明的地方复制粘贴过来即可。
 
 
 #### 上传插件
 
-[Flutter | 如何优雅的开发一个插件并发布到Dart仓库？如何开发 Flutter 插件，并发布到 Dart 仓库 - 掘金](https://juejin.cn/post/6961565875035963399)
+[Flutter | 如何优雅的开发一个插件并发布到 Dart 仓库？如何开发 Flutter 插件，并发布到 Dart 仓库 - 掘金](https://juejin.cn/post/6961565875035963399)
 
-注意修改 pubspec.yaml 中的descrpition、添加 repository，此外还需要修改License。
+注意修改 pubspec.yaml 中的 descrpition、添加 repository，此外还需要修改 License。
 
 
 ### 录制系统播放的声音
 
-该插件基于flutter包 [flutter_screen_recording](https://pub.dev/packages/flutter_screen_recording) 和 github库 [SystemAudioCaptureAndroid](https://github.com/HarshSinghRajawat/SystemAudioCaptureAndroid)，实现了在安卓手机上录制系统播放声音的功能，也就是说，只要一个安卓应用没有[设置不允许其它应用录制声音](https://developer.android.google.cn/media/platform/av-capture?hl=en#constraining_capture_by_other_apps)，该插件可以录制该应用播放的声音。
+该插件基于 flutter 包 [flutter_screen_recording](https://pub.dev/packages/flutter_screen_recording) 和 github 库 [SystemAudioCaptureAndroid](https://github.com/HarshSinghRajawat/SystemAudioCaptureAndroid)，实现了在安卓手机上录制系统播放声音的功能，也就是说，只要一个安卓应用没有 [设置不允许其它应用录制声音](https://developer.android.google.cn/media/platform/av-capture?hl=en#constraining_capture_by_other_apps)，该插件可以录制该应用播放的声音。
 
-Github地址：[Xiang-M-J/flutterSystemAudioRecorder](https://github.com/Xiang-M-J/flutterSystemAudioRecorder)
+Github 地址：[Xiang-M-J/flutterSystemAudioRecorder](https://github.com/Xiang-M-J/flutterSystemAudioRecorder)
 
 
 #### 创建工程
@@ -137,14 +137,14 @@ flutter create -t plugin --platform android system_audio_recorder
 
 创建好的插件工程主要关注的是以下三个目录
 
-- android：Android的原生代码
-- example：一个Flutter的实例项目，用来展示、测试开发的plugin
-- lib：Plugin的Dart代码
+- android：Android 的原生代码
+- example：一个 Flutter 的实例项目，用来展示、测试开发的 plugin
+- lib：Plugin 的 Dart 代码
 
 
 #### 原生代码
 
-用android studio 打开 `system_audio_recorder/android`，开始修改配置。打开 `system_audio_recorder/android/gradle/wrapper/gradle-warpper.properties`，将 distributionUrl 修改为 `file:///D://work//app//gradle-7.5-all.zip`。打开 `system_audio_recorder/android/build.gradle` 在文件末尾添加配置flutter和androidx.core的代码
+用 android studio 打开 `system_audio_recorder/android`，开始修改配置。打开 `system_audio_recorder/android/gradle/wrapper/gradle-warpper.properties`，将 distributionUrl 修改为 `file:///D://work//app//gradle-7.5-all.zip`。打开 `system_audio_recorder/android/build.gradle` 在文件末尾添加配置 flutter 和 androidx.core 的代码
 
 ```
 //获取local.properties配置文件  
@@ -169,7 +169,7 @@ dependencies {
 }
 ```
 
-点击 sync Now，同步gradle包。
+点击 sync Now，同步 gradle 包。
 
 `kotlin/com/example/system_audio_recorder/` 已经有 `SystemAudioRecorderPlugin.kt` ，这个文件用来实现插件的各种方法，但是由于需要录音系统声音，需要使用前台服务，所以需要额外添加一个 `ForegroundService.kt` 文件用于配置前台服务，`ForegroundService.kt` 的内容如下：
 
@@ -699,7 +699,7 @@ class SystemAudioRecorderPlugin: MethodCallHandler, PluginRegistry.ActivityResul
 
 接下来使用 android studio 打开 system_audio_recorder，编写插件代码。
 
-首先配置一下 `system_audio_recorder/pubspec.yaml`，添加dependencies
+首先配置一下 `system_audio_recorder/pubspec.yaml`，添加 dependencies
 
 ```yaml
 dependencies:  
@@ -900,7 +900,7 @@ abstract class SystemAudioRecorderPlatform extends PlatformInterface {
 
 #### example 代码
 
-最后用 android studio 打开 `system_audio_recorder/example` 文件夹，这里需要在`system_audio_recorder/example/android/app/src/main/AndroidManifest.xml`中添加 service
+最后用 android studio 打开 `system_audio_recorder/example` 文件夹，这里需要在 `system_audio_recorder/example/android/app/src/main/AndroidManifest.xml` 中添加 service
 
 ```xml
 <application  
@@ -1019,12 +1019,12 @@ class _MyAppState extends State<MyApp> {
 
 #### 注意问题
 
-如果遇到 java.lang.SecurityException: Media projections require a foreground service of type ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION 这种错误时，如果确保已经添加权限，可能需要看一下ForegroundService的包名是否和插件的包名一致，如果一致，需要修改ForegroundService的包名，否则会报错。
+如果遇到 java.lang.SecurityException: Media projections require a foreground service of type ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION 这种错误时，如果确保已经添加权限，可能需要看一下 ForegroundService 的包名是否和插件的包名一致，如果一致，需要修改 ForegroundService 的包名，否则会报错。
 
 
-### 从Java中回传数据
+### 从 Java 中回传数据
 
-使用 EventChannel 可以从java中回传数据，以此来实现监听流的效果。
+使用 EventChannel 可以从 java 中回传数据，以此来实现监听流的效果。
 
 #### 原生代码
 
@@ -1227,7 +1227,7 @@ class MainActivity : AppCompatActivity() {
 
 
 
-此外在`test_jni\android\app\build.gradle` 中添加了指定 `CMakeLists.txt` 的配置
+此外在 `test_jni\android\app\build.gradle` 中添加了指定 `CMakeLists.txt` 的配置
 
 
 
@@ -1246,13 +1246,13 @@ android{
 
 
 
-上面的内容可以直接移植到其它项目，如flutter插件项目。
+上面的内容可以直接移植到其它项目，如 flutter 插件项目。
 
 
 
 
 
-如果 `C++`中调用了一些链接库， 可以在 `test_jni\android\app\src\main` 目录下创建`jniLibs` 文件夹存放这些链接库，一般是 `.so` 文件。`jniLibs` 文件夹的结构一般如下
+如果 `C++` 中调用了一些链接库， 可以在 `test_jni\android\app\src\main` 目录下创建 `jniLibs` 文件夹存放这些链接库，一般是 `.so` 文件。`jniLibs` 文件夹的结构一般如下
 
 
 
@@ -1506,11 +1506,11 @@ tasks.whenTaskAdded { task ->
 ## 编写链接库
 
 
-### flutter端
+### flutter 端
 
 一般使用 C/C++ 编写链接库，C/C++端只需要按照一般的情况去编写代码即可，尽量不去引用其它库。
 
-为了将 C/C++ 文件编译成适合Android平台的链接库，需要创建一个CMake项目
+为了将 C/C++ 文件编译成适合 Android 平台的链接库，需要创建一个 CMake 项目
 
 ```cmake
 # The Flutter tooling requires that developers have CMake 3.10 or later
@@ -1663,7 +1663,7 @@ flutter build web --release
 
 **flutter 中可以放置多个控件的容器**：
 
-1. [Row](https://api.flutter.dev/flutter/widgets/Row-class.html)和[Column](https://api.flutter.dev/flutter/widgets/Column-class.html)
+1. [Row](https://api.flutter.dev/flutter/widgets/Row-class.html) 和 [Column](https://api.flutter.dev/flutter/widgets/Column-class.html)
 
 2. [GridView](https://api.flutter.dev/flutter/widgets/GridView-class.html)
 
@@ -1703,7 +1703,7 @@ const SizedBox(height: 10),
 
 ### 两种窗口
 
-flutter 中有 `StatelessWidget` 和 `StatefulWidget`，顾名思义，`StatelessWidget` 是一个不需要状态更改的 widget（没有要管理的内部状态），当界面部分不依赖于对象本身中的配置信息以及 widget 的`BuildContext` 时，可以使用 `StatelessWidget`。`StatefulWidget` 是可变状态的 widget。 使用`setState`方法管理 `StatefulWidget` 的状态的改变。调用`setState`告诉 Flutter 框架，某个状态发生了变化，Flutter 会重新运行 build 方法，以便应用程序可以应用最新状态。
+flutter 中有 `StatelessWidget` 和 `StatefulWidget`，顾名思义，`StatelessWidget` 是一个不需要状态更改的 widget（没有要管理的内部状态），当界面部分不依赖于对象本身中的配置信息以及 widget 的 `BuildContext` 时，可以使用 `StatelessWidget`。`StatefulWidget` 是可变状态的 widget。 使用 `setState` 方法管理 `StatefulWidget` 的状态的改变。调用 `setState` 告诉 Flutter 框架，某个状态发生了变化，Flutter 会重新运行 build 方法，以便应用程序可以应用最新状态。
 
 
 
@@ -1926,7 +1926,7 @@ Container(
 )
 ```
 
-double.infinity 和double.maxFinite可以让当前元素的width或者height达到父元素的尺寸
+double.infinity 和 double.maxFinite 可以让当前元素的 width 或者 height 达到父元素的尺寸
 
 
 
@@ -2165,7 +2165,7 @@ class BodyState extends State<Body> {
 
 ### 循环播放
 
-[Flutter Animation动画开发之——repeat循环播放_flutter 循环动画-CSDN博客](https://blog.csdn.net/mqdxiaoxiao/article/details/102933512)
+[Flutter Animation 动画开发之——repeat 循环播放_flutter 循环动画-CSDN 博客](https://blog.csdn.net/mqdxiaoxiao/article/details/102933512)
 
 循环播放一个圆从小到大，同时改变颜色。
 
@@ -2354,7 +2354,7 @@ Navigator.of(context).pushAndRemoveUntil(
 
 ### flutter 中的 key
 
-许多组建的构造函数中都会有key
+许多组建的构造函数中都会有 key
 
 ```dart
 const tabBarWidget({super.key});
@@ -2371,7 +2371,7 @@ class _ScreenState extends State<Screen> {
 //  ···
 ```
 
-详见 [Flutter | 深入浅出Key - 掘金 (juejin.cn)](https://juejin.cn/post/6844903811870359559)
+详见 [Flutter | 深入浅出 Key - 掘金 (juejin.cn)](https://juejin.cn/post/6844903811870359559)
 
 
 
@@ -2573,7 +2573,7 @@ await flutterTts.speak("中午好，今天天气真不错");
 
 具体使用参见文档：[speech_to_text - Dart API docs (pub.dev)](https://pub.dev/documentation/speech_to_text/latest/)
 
-相较于语音合成，支持语音识别的浏览器明显较少["Web Speech API" | Can I use... Support tables for HTML5, CSS3, etc](https://caniuse.com/?search=Web Speech API)
+相较于语音合成，支持语音识别的浏览器明显较少 ["Web Speech API" | Can I use... Support tables for HTML5, CSS3, etc](https://caniuse.com/?search=Web Speech API)
 
 speech_to_text 要求最小的 SdkVersion 为 21，需要修改 android\app\build.gradle 中的 defaultConfig：
 
@@ -2631,7 +2631,7 @@ List<Widget> _initView(){
 
 ### 一键切换主题
 
-[Flutter主题切换——让你的APP也能一键换肤 - 掘金 (juejin.cn)](https://juejin.cn/post/6844904137021194253)
+[Flutter 主题切换——让你的 APP 也能一键换肤 - 掘金 (juejin.cn)](https://juejin.cn/post/6844904137021194253)
 
 使用 provider 和 flustars_flutter3 两个库。
 
@@ -2890,14 +2890,14 @@ print(contents);
 ## Getx 框架
 
 
-Getx框架集成了开发中许多重要内容（状态管理，依赖，路径等），这样方便开发。同时 Getx 简化了flutter中的许多设计，并且可以实现解耦视图和业务逻辑。
+Getx 框架集成了开发中许多重要内容（状态管理，依赖，路径等），这样方便开发。同时 Getx 简化了 flutter 中的许多设计，并且可以实现解耦视图和业务逻辑。
 
 
 ### 一个例子：实现点击计数
 
 Getx 中使用 GetMaterialApp 替代 MaterialApp，跳转则使用 `Get.to()` 或者 `Get.back()` ，如 `Get.to(Other())` 表示跳转到 Other 界面。
 
-Getx 通过设置一个控制器来管理变量和方法等，如果需要变量可见，则后标 `.obs`。这样的好处在变量改变时更新组件，不再需要setState({})，而是直接用 `Obx` 修饰一个组件
+Getx 通过设置一个控制器来管理变量和方法等，如果需要变量可见，则后标 `.obs`。这样的好处在变量改变时更新组件，不再需要 setState({})，而是直接用 `Obx` 修饰一个组件
 
 ```dart
 class Controller extends GetxController{
@@ -3082,11 +3082,11 @@ Get.offAll(NextScreen());
 
 [onnxruntime | Flutter package](https://pub.dev/packages/onnxruntime)
 
-onnxruntime 用于在flutter中运行神经网络。
+onnxruntime 用于在 flutter 中运行神经网络。
 
 ### 引用
 
-将onnx后缀的模型放在 assets 文件夹中，并在 pubspec.yaml 中注明 assets 
+将 onnx 后缀的模型放在 assets 文件夹中，并在 pubspec.yaml 中注明 assets 
 
 ```yaml
 assets:  
@@ -3095,7 +3095,7 @@ assets:
 
 如果在安卓中运行，那么大概率会遇到缺少 libonnxruntime.so 的错误，有两种解决方法：
 
-1. 从[Maven Repository: com.microsoft.onnxruntime » onnxruntime-android » 1.18.0 (mvnrepository.com)](https://mvnrepository.com/artifact/com.microsoft.onnxruntime/onnxruntime-android/latest) 下载对应的文件，下载文件的入口在表格的 Files 一栏中，下载 aar 文件，下载好后，将 aar 后缀改为 zip 后缀，解压后可以在 jni 文件夹找到 so 文件，将其复制到build/app/intermediates/merged_native_libs 和 build/app/intermediates/stripped_native_libs 这两个文件夹。
+1. 从 [Maven Repository: com.microsoft.onnxruntime » onnxruntime-android » 1.18.0 (mvnrepository.com)](https://mvnrepository.com/artifact/com.microsoft.onnxruntime/onnxruntime-android/latest) 下载对应的文件，下载文件的入口在表格的 Files 一栏中，下载 aar 文件，下载好后，将 aar 后缀改为 zip 后缀，解压后可以在 jni 文件夹找到 so 文件，将其复制到 build/app/intermediates/merged_native_libs 和 build/app/intermediates/stripped_native_libs 这两个文件夹。
 2. 在 `android/app/build.gradle` 中添加 maven 依赖（和第一种解决方法中相同的地址），同时可能遇到 Execution failed for task ':app:mergeDebugNativeLibs' 错误，需要添加 packagingOptions
 ```json
 android {  
@@ -3116,7 +3116,7 @@ dependencies {
 }
 ```
 
-注意第二种方法可能遇到 build\app\intermediates\flutter\debug\flutter_assets\assets 文件夹model.onnx 无法自动删除导致错误，可以手动删除。或者在 `android/app/build.gradle` 添加删除任务
+注意第二种方法可能遇到 build\app\intermediates\flutter\debug\flutter_assets\assets 文件夹 model.onnx 无法自动删除导致错误，可以手动删除。或者在 `android/app/build.gradle` 添加删除任务
 
 ```json
 android{
@@ -3217,7 +3217,7 @@ class Model{
 
 
 > [!NOTE] 
-> 一般来说模型的输入需要是Float32List，输出需要被转为类似 `List<double>` 类型
+> 一般来说模型的输入需要是 Float32List，输出需要被转为类似 `List<double>` 类型
 
 
 
@@ -3316,9 +3316,9 @@ sendPort?.send([micFrame, refFrame]);
 
 
 
-> No Material widget found. ListTile widgets require a Material widqet ancestor wtthin the closest LookupBoundary. In Material Design, most wdgets are conceptualy "printed" on a sheet of material. In Flutters material library, that material is represe nted by the Material widget it is the Materal widget that renders ink splashes,forinstance.Because of this,many material lbrary wldgets requt e that there be a Material widget in the tree above them.
+> No Material widget found. ListTile widgets require a Material widqet ancestor wtthin the closest LookupBoundary. In Material Design, most wdgets are conceptualy "printed" on a sheet of material. In Flutters material library, that material is represe nted by the Material widget it is the Materal widget that renders ink splashes, forinstance.Because of this, many material lbrary wldgets requt e that there be a Material widget in the tree above them.
 
-使用的组件没有被 Material 组件（Material、Scaffold等）包裹。
+使用的组件没有被 Material 组件（Material、Scaffold 等）包裹。
 
 
 
@@ -3330,7 +3330,7 @@ sendPort?.send([micFrame, refFrame]);
 
 > Vertical viewport was given unbounded height.
 
-可能是因为使用 ListView 出现的问题，需要在 ListView 中加入 shrinkWrap:true
+可能是因为使用 ListView 出现的问题，需要在 ListView 中加入 shrinkWrap: true
 
 ```dart
 ListView(
