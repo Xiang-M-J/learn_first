@@ -3,17 +3,13 @@
 
 ## 开发环境
 
-1、下载 Vulkan SDK
-2、下载 GLFW [Download | GLFW](https://www.glfw.org/download.html)，该库可以创建支持Windows、Linux和MacOS的窗口
-3、下载GLM [Releases · brackeen/glfm](https://github.com/brackeen/glfm/releases)，该库是一个线性代数运算库
+1. 下载 Vulkan SDK
+2. 下载 GLFW [Download | GLFW](https://www.glfw.org/download.html)，该库可以创建支持Windows、Linux和MacOS的窗口
+3. 下载GLM [Releases · brackeen/glfm](https://github.com/brackeen/glfm/releases)，该库是一个线性代数运算库
 
-编译器选择Visual Studio
+编译器选择Visual Studio，启动 Visual Studio 创建一个控制台应用程序，并且添加 `main.cpp`
 
-1、启动 Visual Studio 创建一个控制台应用程序，并且添加 `main.cpp`
-
-2、设置头文件和链接路径
-
-首先是 C/C++  -> General -> Additional Include Directories，添加Vulkan、GLFW和GLM的头文件目录
+设置头文件和链接路径，首先是 C/C++  -> General -> Additional Include Directories，添加Vulkan、GLFW和GLM的头文件目录
 ```
 E:\glm_glfw\glm
 E:\glm_glfw\glfw-3.4.bin.WIN64\include
