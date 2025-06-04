@@ -2173,7 +2173,7 @@ void createGraphicsPipeline() {
 
 Vulkan 中的缓冲区是用于存储可由显卡读取的任意数据的内存区域。它们可以用来存储顶点数据
 
-创建一个新的函数 `createVertexBuffer` 并在 `initVulkan` 中 `createCommandBuffers` 之前调用它，同时注意在cleanup中销毁 vertexBuffer。
+创建一个新的函数 `createVertexBuffer` 并在 `initVulkan` 中 `createCommandBuffers` 之前调用它，同时注意在cleanup中使用 `vkDestroyBuffer` 销毁 vertexBuffer。
 
 ```c++
 VkBuffer vertexBuffer;
@@ -2189,3 +2189,611 @@ void createVertexBuffer() {
     }
 }
 ```
+
+缓冲区已经创建，但实际上还没有分配任何内存。为缓冲区分配内存的第一步是使用恰如其名的 `vkGetBufferMemoryRequirements` 函数查询其内存需求。
+
+`VkMemoryRequirements` 结构具有三个字段
+
+- `size`：所需内存量的字节大小，可能与 `bufferInfo.size` 不同。
+- `alignment`：缓冲区在内存分配区域中开始的字节偏移量，取决于 `bufferInfo.usage` 和 `bufferInfo.flags`。
+- `memoryTypeBits`：适用于该缓冲区的内存类型的位域。
+
+显卡可以提供不同类型的内存来分配。每种类型的内存在允许的操作和性能特征方面都有所不同。我们需要结合缓冲区的需求和我们自己的应用程序需求，找到要使用的正确内存类型。让我们为此创建一个新函数 `findMemoryType`。
+
+```c++
+uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+	VkPhysicalDeviceMemoryProperties memProperties;
+	// 查询有关可用内存类型的信息。
+	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+	// 找到一种适合缓冲区本身的内存类型，并且判断内存满足后续的操作要求
+	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+		// typeFilter 参数将用于指定适合的内存类型的位域。
+		if ((typeFilter & (1 << i)) && 
+			// 判断内存是否满足要求
+			(memProperties.memoryTypes[i].propertyFlags & properties) == properties) 
+		{
+			return i;
+		}
+	}
+	
+	throw std::runtime_error("failed to find suitable memory type!");
+}
+```
+
+然后修改 `createVertexBuffer` 函数，添加分配内存的代码，首先是前面提到的查询内存需求，然后填写分配信息的结构体，分配成功后，使用 `vkBindBufferMemory` 将此内存与缓冲区关联起来。在cleanup中使用 `vkFreeMemory` 销毁分配的内存 
+
+```c++
+void createVertexBuffer() {
+	//...
+	
+	VkMemoryRequirements memRequirements;   // 查询其内存需求
+	vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
+
+	VkMemoryAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memRequirements.size;
+	allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory)!= VK_SUCCESS)
+	{
+		throw std::runtime_error("failed to allocate vertex buffer memory!");
+	}
+	// 将内存与缓冲区关联起来。
+	vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
+}
+```
+
+现在是时候将顶点数据复制到缓冲区了。这通过使用 `vkMapMemory` 将[缓冲区内存映射](https://en.wikipedia.org/wiki/Memory-mapped_I/O)到 CPU 可访问的内存中来完成。
+
+```c++
+void createVertexBuffer() {
+	// ...
+
+	void* data;
+	vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+	memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+	vkUnmapMemory(device, vertexBufferMemory);
+}
+```
+
+剩下要做的就是在渲染操作期间绑定顶点缓冲区。我们将扩展 `recordCommandBuffer` 函数来做到这一点。在 `vkCmdBindPipeline` 和 `vkCmdDraw` 之间加入新的代码
+
+```c++
+void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+	// ...
+	
+	// 绑定图形管线
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+	// ...
+
+	VkBuffer vertexBuffers[] = { vertexBuffer };
+	VkDeviceSize offsets[] = { 0 };
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+	vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+	// ...
+}
+```
+
+
+代码见 [19_vertex_buffer.cpp](codes/vulkan/19_vertex_buffer.cpp)
+
+
+### 暂存缓冲
+
+我们现在使用的顶点缓冲工作正常，但允许我们从 CPU 访问它的内存类型可能不是图形卡本身读取的最佳内存类型。最佳内存具有 `VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT` 标志，并且通常在专用图形卡上无法通过 CPU 访问。在本章中，我们将创建两个顶点缓冲区。一个在 CPU 可访问内存中的_暂存缓冲_，用于将数据从顶点数组上传到该缓冲，以及最终位于设备本地内存中的顶点缓冲。然后，我们将使用缓冲区复制命令将数据从暂存缓冲区移动到实际的顶点缓冲区。
+
+缓冲区复制命令需要支持传输操作的队列族，这通过 `VK_QUEUE_TRANSFER_BIT` 指示。好消息是，任何具有 `VK_QUEUE_GRAPHICS_BIT` 或 `VK_QUEUE_COMPUTE_BIT` 功能的队列族都已隐式支持 `VK_QUEUE_TRANSFER_BIT` 操作。在这些情况下，实现不需要在 `queueFlags` 中显式列出它。
+
+
+创建一个新函数 `createBuffer`，并将 `createVertexBuffer` 中的代码（映射除外）移动到其中。确保为缓冲区大小、内存属性和使用情况添加参数，以便我们可以使用此函数创建多种不同类型的缓冲区。最后两个参数是输出变量，用于写入句柄。
+
+```c++
+void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
+	VkBufferCreateInfo bufferInfo{};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = size;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create buffer!");
+	}
+
+	VkMemoryRequirements memRequirements;
+	vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+
+	VkMemoryAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = memRequirements.size;
+	allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+
+	if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS) {
+		throw std::runtime_error("failed to allocate buffer memory!");
+	}
+
+	vkBindBufferMemory(device, buffer, bufferMemory, 0);
+}
+void createVertexBuffer() {
+	VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+	createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexBuffer, vertexBufferMemory);
+
+	void* data;
+	vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &data);
+	memcpy(data, vertices.data(), (size_t)bufferSize);
+	vkUnmapMemory(device, vertexBufferMemory);
+}
+```
+
+现在将更改 `createVertexBuffer` 以仅使用主机可见缓冲区作为临时缓冲区，并使用设备本地缓冲区作为实际顶点缓冲区。使用一个新的 `stagingBuffer` 和 `stagingBufferMemory` 进行映射和复制顶点数据。
+
+```c++
+void createVertexBuffer() {
+	VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 
+		stagingBuffer, stagingBufferMemory);
+
+	void* data;
+	vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+	memcpy(data, vertices.data(), (size_t)bufferSize);
+	vkUnmapMemory(device, stagingBufferMemory);
+
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+}
+```
+
+`vertexBuffer` 现在从设备本地的内存类型分配，这通常意味着我们无法使用 `vkMapMemory`。但是需要将数据从 `stagingBuffer` 复制到 `vertexBuffer` 时，必须通过为 `stagingBuffer` 指定传输源标志，为 `vertexBuffer` 指定传输目标标志，以及顶点缓冲区使用标志，来表明我们打算这样做。
+
+编写一个函数 `copyBuffer`，用于将内容从一个缓冲区复制到另一个缓冲区。
+
+```c++
+void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+	// 分配一个临时命令缓冲区
+	VkCommandBufferAllocateInfo allocInfo{};
+
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = commandPool;
+	allocInfo.commandBufferCount = 1;
+
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+	// 开始记录命令缓冲区
+
+	VkCommandBufferBeginInfo beginInfo{};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+	// 缓冲区的内容使用 vkCmdCopyBuffer 命令传输。
+	VkBufferCopy copyRegion{};
+	copyRegion.srcOffset = 0; // Optional
+	copyRegion.dstOffset = 0; // Optional
+	copyRegion.size = size;
+	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+
+	// 停止传输
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	// 与绘制命令不同，这次我们不需要等待任何事件。我们只想立即在缓冲区上执行传输。
+	// 同样，有两种可能的方式可以等待此传输完成。
+	// 1. 可以使用栅栏并使用 vkWaitForFences 等待，
+	// 2. 等待传输队列使用 vkQueueWaitIdle 变为闲置状态。
+	// 栅栏将允许您同时安排多个传输并等待它们全部完成，而不是一次执行一个。这可能会给驱动程序更多优化机会。
+
+	vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(graphicsQueue);
+
+	// 清理命令缓冲区
+	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+}
+```
+
+最后在将数据从暂存缓冲区复制到设备缓冲区后，我们应该清理它。
+
+```c++
+void createVertexBuffer() {
+	// ...
+	copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+	vkDestroyBuffer(device, stagingBuffer, nullptr);
+	vkFreeMemory(device, stagingBufferMemory, nullptr);
+}
+```
+
+代码见 [20_staging_buffer.cpp](codes/vulkan/20_staging_buffer.cpp)
+
+
+### 索引缓冲
+
+您在实际应用程序中渲染的 3D 网格通常会在多个三角形之间共享顶点。即使是绘制一个简单的矩形，也会发生这种情况。
+
+索引缓冲区本质上是一个指向顶点缓冲区的指针数组。它允许您重新排列顶点数据，并为多个顶点重用现有数据。
+
+修改顶点数据并添加索引数据来绘制一个矩形，修改顶点数据以表示四个角，并且添加一个索引数组来索引顶点
+
+```c++
+const std::vector<Vertex> vertices = {
+	{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+	{{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+};
+
+const std::vector<uint16_t> indices = {
+	0, 1, 2, 2, 3, 0
+};
+```
+
+就像顶点数据一样，索引也需要上传到 `VkBuffer` 中，以便 GPU 能够访问它们。定义两个新的类成员来保存索引缓冲区的资源，并且创建`createIndexBuffer` 函数，在 `createVertexBuffer` 之后调用。该函数与`createVertexBuffer` 几乎相同，只有两个明显的区别。 `bufferSize` 现在等于索引的数量乘以索引类型的大小，即 `uint16_t` 或 `uint32_t`。 `indexBuffer` 的用法应该是 `VK_BUFFER_USAGE_INDEX_BUFFER_BIT` 而不是 `VK_BUFFER_USAGE_VERTEX_BUFFER_BIT`。索引缓冲区也需要在程序结束时清理
+
+```c++
+VkBuffer indexBuffer;
+VkDeviceMemory indexBufferMemory;
+
+void createIndexBuffer() {
+	VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+
+	void* data;
+	vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
+	memcpy(data, indices.data(), (size_t)bufferSize);
+	vkUnmapMemory(device, stagingBufferMemory);
+
+	createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
+
+	copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+
+	vkDestroyBuffer(device, stagingBuffer, nullptr);
+	vkFreeMemory(device, stagingBufferMemory, nullptr);
+}
+
+void cleanup() {
+	vkDestroyBuffer(device, indexBuffer, nullptr);
+	vkFreeMemory(device, indexBufferMemory, nullptr);
+
+	vkDestroyBuffer(device, vertexBuffer, nullptr);
+	vkFreeMemory(device, vertexBufferMemory, nullptr);
+	// ...
+}
+```
+
+使用索引缓冲区进行绘制需要对 `recordCommandBuffer` 进行两处更改。我们首先需要绑定索引缓冲区，就像我们对顶点缓冲区所做的那样。不同之处在于您只能有一个索引缓冲区。不幸的是，不可能为每个顶点属性使用不同的索引，所以即使只有一个属性变化，我们仍然必须完全复制顶点数据。
+
+```c++
+void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+	// ...
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+	vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
+	// ...
+}
+```
+
+代码见 [21_index_buffer.cpp](codes/vulkan/21_index_buffer.cpp)
+
+
+
+## 统一缓冲
+
+
+### 描述符布局和缓冲区
+
+我们现在能够为每个顶点向顶点着色器传递任意属性，但是全局变量呢？ 从本章开始，我们将转向 3D 图形，这需要一个模型-视图-投影矩阵。 我们可以将其作为顶点数据包含在内，但这会浪费内存，并且每当变换更改时，都需要更新顶点缓冲区。 变换很容易在每一帧都发生变化。
+
+在 Vulkan 中解决此问题的正确方法是使用资源描述符。描述符是着色器自由访问缓冲区和图像等资源的一种方式。 我们将设置一个包含变换矩阵的缓冲区，并让顶点着色器通过描述符访问它们。 描述符的使用包括三个部分
+
+- 在管线创建期间指定描述符集布局
+- 从描述符池中分配描述符集
+- 在渲染期间绑定描述符集
+
+描述符集布局指定管线将要访问的资源类型，就像渲染通道指定将要访问的附件类型一样。
+描述符集指定将绑定到描述符的实际缓冲区或图像资源，就像帧缓冲指定要绑定到渲染通道附件的实际图像视图一样。然后，描述符集被绑定用于绘制命令，就像顶点缓冲区和帧缓冲一样。
+
+
+描述符有许多类型，本章中将只使用统一缓冲区对象 (UBO)，定义一个结构
+
+```c++
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
+```
+
+修改顶点着色器的glsl 代码 
+
+```glsl
+#version 450
+
+layout(binding = 0) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+} ubo;
+
+layout(location = 0) in vec2 inPosition;
+layout(location = 1) in vec3 inColor;
+
+layout(location = 0) out vec3 fragColor;
+
+void main() {
+    gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 0.0, 1.0);
+    fragColor = inColor;
+}
+```
+
+`binding` 指令类似于属性的 `location` 指令，我们将在描述符集布局中引用此绑定。`gl_Position` 行已更改为使用变换来计算剪辑坐标中的最终位置。
+
+我们需要为管线创建中使用的每个描述符绑定提供详细信息，所以设置一个新函数来定义所有这些信息，称为 `createDescriptorSetLayout`，并在管线创建之前调用。定义两个类成员
+
+```c++
+VkDescriptorSetLayout descriptorSetLayout;
+VkPipelineLayout pipelineLayout;
+
+void createDescriptorSetLayout() {
+		VkDescriptorSetLayoutBinding uboLayoutBinding{};
+		uboLayoutBinding.binding = 0;  // 指定binding
+		uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		uboLayoutBinding.descriptorCount = 1; // 指定数组中值的数量。
+
+		uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		uboLayoutBinding.pImmutableSamplers = nullptr; // 与图像采样相关
+		
+		VkDescriptorSetLayoutCreateInfo layoutInfo{};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &uboLayoutBinding;
+
+		if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create descriptor set layout!");
+		}
+
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = 1;
+		pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+	}
+```
+
+描述符集布局应该在我们可能创建新图形管线期间保持存在，即直到程序结束。
+
+```c++
+void cleanup() {
+    vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+	// ...
+}
+```
+
+后面将指定包含着色器 UBO 数据的缓冲区，但我们需要首先创建此缓冲区。我们将在每一帧将新数据复制到 uniform 缓冲区，因此使用临时缓冲区没有任何意义。在这种情况下，它只会增加额外的开销，并可能降低性能而不是提高性能。
+
+我们应该有多个缓冲区，因为可能有多个帧同时在处理中，我们不想在先前帧仍在从中读取数据时，更新缓冲区以准备下一帧！因此，我们需要拥有与飞行中帧数一样多的 uniform 缓冲区，并写入当前未被 GPU 读取的 uniform 缓冲区。
+
+创建类成员和函数 `createUniformBuffers`，该函数 `createIndexBuffer` 之后调用并分配缓冲区。
+
+```c++
+VkBuffer indexBuffer;
+VkDeviceMemory indexBufferMemory;
+
+std::vector<VkBuffer> uniformBuffers;
+std::vector<VkDeviceMemory> uniformBuffersMemory;
+std::vector<void*> uniformBuffersMapped;
+
+void createUniformBuffers() {
+	VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+	uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+	uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+	uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+
+		vkMapMemory(device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+	}
+}
+```
+
+我们使用 `vkMapMemory` 在创建后立即映射缓冲区，以获取一个指针，稍后我们可以将数据写入其中。该缓冲区在应用程序的整个生命周期中都保持映射到此指针。此技术称为**持久映射**，并且适用于所有 Vulkan 实现。不必每次需要更新缓冲区时都映射缓冲区可以提高性能，因为映射并非免费。
+
+同时需要在cleanup中销毁
+
+```c++
+void cleanup() {
+	// ...
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		vkDestroyBuffer(device, uniformBuffers[i], nullptr);
+		vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
+	}
+}
+```
+
+创建一个新的函数 `updateUniformBuffer`，并在 `drawFrame` 函数中提交下一帧之前添加对其的调用。此函数将在每一帧生成一个新的转换，以使几何体旋转。我们需要包含两个新的头文件来实现此功能。
+
+```c++
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <chrono>
+
+void updateUniformBuffer(uint32_t currentImage) {
+	static auto startTime = std::chrono::high_resolution_clock::now();
+
+	auto currentTime = std::chrono::high_resolution_clock::now();
+	float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+	UniformBufferObject ubo{};
+	// 模型旋转
+	ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	// 视图转换
+	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	// 投影
+	ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+	ubo.proj[1][1] *= -1; // GLM原本为OpenGL设计，需要翻转
+	
+	memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+}
+```
+
+在drawFrame中的具体位置为
+
+```c++
+void drawFrame() {
+	// ...
+
+	updateUniformBuffer(currentFrame);
+	// 添加的位置
+	VkSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	// ...
+}
+```
+
+代码见 [22_descriptor_set_layout.cpp](codes/vulkan/22_descriptor_set_layout.cpp)
+
+
+### 描述符池和集合
+
+上一章中的描述符集布局描述了可以绑定的描述符类型。在本章中，我们将为每个 `VkBuffer` 资源创建一个描述符集，以将其绑定到统一缓冲区描述符。
+
+描述符集不能直接创建，它们必须像命令缓冲区一样从池中分配。描述符集的等价物称为描述符池。我们将编写一个新的函数 `createDescriptorPool` 来设置它。该函数在 `createUniformBuffers` 之后调用
+
+```c++
+VkDescriptorPool descriptorPool;
+void createDescriptorPool() {
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+
+	poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+	if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create descriptor pool!");
+	}
+}
+```
+
+我们现在可以分配描述符集本身。为此添加一个 `createDescriptorSets` 函数
+
+```c++
+std::vector<VkDescriptorSet> descriptorSets;
+
+void createDescriptorSets() {
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	allocInfo.pSetLayouts = layouts.data();
+
+	descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+	if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
+		throw std::runtime_error("failed to allocate descriptor sets!");
+	}
+}
+```
+
+不需要显式清理描述符集，因为它们会在描述符池销毁时自动释放。所以只需要在cleanup中添加销毁描述符池的代码
+
+```c++
+void cleanup(){
+	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+}
+```
+
+现在已经分配了描述符集，但仍需要配置其中的描述符。我们现在将添加一个循环来填充每个描述符
+
+```c++
+void createDescriptorSets() {
+	// ...
+
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		VkDescriptorBufferInfo bufferInfo{};
+		bufferInfo.buffer = uniformBuffers[i];
+		bufferInfo.offset = 0;
+		bufferInfo.range = sizeof(UniformBufferObject);
+
+		VkWriteDescriptorSet descriptorWrite{};
+		descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorWrite.dstSet = descriptorSets[i];
+		descriptorWrite.dstBinding = 0;
+		descriptorWrite.dstArrayElement = 0;
+
+		descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptorWrite.descriptorCount = 1;
+		descriptorWrite.pBufferInfo = &bufferInfo;
+		descriptorWrite.pImageInfo = nullptr; // Optional
+		descriptorWrite.pTexelBufferView = nullptr; // Optional
+
+		vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+	}
+}
+```
+
+我们现在需要更新 `recordCommandBuffer` 函数，以使用 `vkCmdBindDescriptorSets` 将每一帧的正确描述符集绑定到着色器中的描述符。这需要在 `vkCmdDrawIndexed` 调用之前完成
+
+```c++
+void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
+	// ...
+	// 新添加
+	vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+	
+	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+	// ...
+}
+```
+
+与顶点缓冲区和索引缓冲区不同，描述符集对于图形管线不是唯一的。因此，我们需要指定是否要将描述符集绑定到图形管线或计算管线。下一个参数是描述符所基于的布局。接下来的三个参数指定第一个描述符集的索引、要绑定的集合数量以及要绑定的集合数组。我们稍后会回到这一点。最后两个参数指定用于动态描述符的偏移量数组。我们将在以后的章节中介绍这些。
+
+此外，由于我们在投影矩阵中进行了 Y 翻转，顶点现在是以逆时针顺序而不是顺时针顺序绘制的。这会导致背面剔除生效，并阻止任何几何图形被绘制。转到 `createGraphicsPipeline` 函数，并修改 `VkPipelineRasterizationStateCreateInfo` 中的 `frontFace` 来纠正这个问题。
+
+```c++
+void createGraphicsPipeline() {
+	// ...
+	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	// ...
+}
+```
+
+代码见 [23_descriptor_sets.cpp](codes/vulkan/23_descriptor_sets.cpp)
+
+
+## 纹理映射
+
+### 图像
+
+本章介绍如何实现纹理映射，向我们的应用程序添加纹理将涉及以下步骤
+
+- 创建由设备内存支持的图像对象
+- 使用图像文件中的像素填充它
+- 创建图像采样器
+- 添加组合图像采样器描述符以从纹理采样颜色
+
+
+有许多库可以加载图像，在本教程中，我们将使用 [stb 集合](https://github.com/nothings/stb)中的 stb_image 库，该库的最大优点是所需的所有东西都在一个文件中，可以很方便的引入。
+
+
