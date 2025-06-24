@@ -269,17 +269,69 @@ def dropout(x, seed, p):
 
 ReLU 的前向小于0的置零，可以用 `tl.maximun(0, x)` 实现，后向过程中，小于0的部分的导数置为零。
 
+```python
+@triton.jit
+def relu_fwd_kernel(x_ptr, y_ptr, n_elements, BLOCK_SIZE: tl.constexpr):
+    pid = tl.program_id(0)
+    block_start = pid * BLOCK_SIZE
+    offsets = block_start + tl.arange(0, BLOCK_SIZE)
+    mask = offsets < n_elements
+
+    x = tl.load(x_ptr + offsets, mask=mask)
+    y = tl.where(x > 0, x, 0.0)
+    tl.store(y_ptr + offsets, y, mask=mask)
+    
+@triton.jit
+def relu_bwd_kernel(x_ptr, dy_ptr, dx_ptr, n_elements, BLOCK_SIZE: tl.constexpr):
+    pid = tl.program_id(0)
+    block_start = pid * BLOCK_SIZE
+    offsets = block_start + tl.arange(0, BLOCK_SIZE)
+    mask = offsets < n_elements
+
+    x = tl.load(x_ptr + offsets, mask=mask)
+    dy = tl.load(dy_ptr + offsets, mask=mask)
+    dx = tl.where(x > 0, dy, 0.0)
+    tl.store(dx_ptr + offsets, dx, mask=mask)
+
+class TritonReLUFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, block_size=1024):
+        n_ele = x.numel()
+        y = torch.empty_like(x)
+        grid = lambda meta: (triton.cdiv(n_ele, meta['BLOCK_SIZE']), )
+        
+        relu_fwd_kernel[grid](x, y, n_ele, block_size)
+        ctx.save_for_backward(x)
+        ctx.block_size = block_size
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        x, = ctx.saved_tensors
+        n_ele = x.numel()
+        grad_input = torch.empty_like(x)
+        grid = lambda meta: (triton.cdiv(n_ele, meta['BLOCK_SIZE']), )
+        block_size = ctx.block_size
+        relu_bwd_kernel[grid](x, grad_output, grad_input, n_ele, block_size)
+        return grad_input, None
+
+def triton_relu(x: torch.Tensor, BLOCK_SIZE: int = 1024) -> torch.Tensor:
+    return TritonReLUFunction.apply(x, BLOCK_SIZE)
+```
+
+> 似乎存在一些问题
 
 
 
 ### LayerNorm 前向和后向
 
-LayerNorm 的公式为
+LayerNorm 的前向公式为
 
 $$
 y = \frac{x-E[x]}{\sqrt{Var(x)+\epsilon}} * w + b
 $$
 
+反向比较复杂
 
 
 
