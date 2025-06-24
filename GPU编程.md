@@ -1,3 +1,289 @@
+
+
+# Triton
+
+Triton 提供了一种使用python进行gpu编程的方法，相比于直接使用CUDA更加方便
+
+## 基础
+
+Triton中使用 `triton.jit` 修饰核函数，核函数运行在设备（GPU）上，需要将数据提前送入设备中。
+
+下面是两个向量相加的例子，核函数中接收的数据实际上都是以指针的形式送入，这样可以避免大量的内存操作。
+
+```python
+import torch
+
+import triton
+import triton.language as tl
+
+DEVICE = torch.device("cuda:0")
+
+
+@triton.jit
+def add_kernel(x_ptr,  # 向量 x 的指针
+               y_ptr,  # 向量 y 的指针
+               output_ptr,  # 输出向量的指针
+               n_elements,  # 向量的大小
+               BLOCK_SIZE: tl.constexpr,  # 程序处理的大小（注意tl.constexpr不能少）
+               ):
+    # 通过pid确定目前程序运行到的位置，因为使用了一维grid，因此axis为0
+    pid = tl.program_id(axis=0) 
+    
+    # pid 乘上 BLOCK_SIZE 即为当前程序处理的向量的起始位置 block_start
+    block_start = pid * BLOCK_SIZE
+    offsets = block_start + tl.arange(0, BLOCK_SIZE)
+    # mask 用来保证内存操作不会超过边界
+    mask = offsets < n_elements
+    # 从 DRAM 中加载 x 和 y，
+    # 当 n_elements 不是 BLOCK_SIZE 的整数倍，mask 可以用来处理多余的元素
+    x = tl.load(x_ptr + offsets, mask=mask)
+    y = tl.load(y_ptr + offsets, mask=mask)
+    output = x + y
+    # 将结果写回 DRAM.
+    tl.store(output_ptr + offsets, output, mask=mask)
+
+def add(x: torch.Tensor, y: torch.Tensor):
+    # 预分配输出的空间
+    output = torch.empty_like(x)
+    assert x.device == DEVICE and y.device == DEVICE and output.device == DEVICE
+    n_elements = output.numel()
+    # grid 用来计算一共需要多少个块 meta 为参数
+    grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']), )
+    
+    add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE=1024)
+    return output
+
+torch.manual_seed(0)
+size = 98432
+x = torch.rand(size, device=DEVICE)
+y = torch.rand(size, device=DEVICE)
+output_triton = add(x, y)
+```
+
+为了测量程序运行时间和效率，可以使用自带的benchmark
+
+对于benchmark函数，需要传入确定张量大小的形状（如下例中的 `size`），对于不变的维度，可以通过 `triton.testing.Benchmark` 中的 `args` 作为字典传入，对于改变的维度，可以在 `x_names` 中声明变量名（如下例中的 `x_names=['size']`），同时在 `x_vals` 中给出具体的值
+
+```python
+@triton.testing.perf_report(
+    triton.testing.Benchmark(
+        x_names=['size'], # 这里的参数对应下面x_vals中的具体值
+        x_vals=[2**i for i in range(12, 28, 1)], # x_vals 为向量的大小
+        x_log=True,  # x 轴是对数
+        line_arg='provider',
+        line_vals=['triton', 'torch'],
+        line_names=['Triton', 'Torch'],
+        styles=[('blue', '-'), ('green', '-')],
+        ylabel='GB/s',
+        plot_name='vector-add-performance', 
+        args={},  # 这里
+    ))
+
+def benchmark(size, provider):
+    x = torch.rand(size, device=DEVICE, dtype=torch.float32)
+    y = torch.rand(size, device=DEVICE, dtype=torch.float32)
+    quantiles = [0.5, 0.2, 0.8]
+    if provider == 'torch':
+        ms, min_ms, max_ms = triton.testing.do_bench(lambda: x + y, quantiles=quantiles)
+    if provider == 'triton':
+        ms, min_ms, max_ms = triton.testing.do_bench(lambda: add(x, y), quantiles=quantiles)
+    gbps = lambda ms: 3 * x.numel() * x.element_size() * 1e-9 / (ms * 1e-3)
+    return gbps(ms), gbps(max_ms), gbps(min_ms)
+
+benchmark.run(print_data=True, show_plots=True)
+```
+
+
+
+## 例子
+
+
+### Softmax
+
+对于二维向量，softmax可以通过对每行进行softmax来实现加速，下面给出一个对单行进行softmax的核函数。
+
+对于多维向量，为了能够准确找到每行的起始位置，需要获得张量当前行和下一行的相同列的元素之间的步长（该值可能和列数相等，也有可能不相等）
+
+```python
+import torch
+
+import triton
+import triton.language as tl
+from triton.runtime import driver
+
+DEVICE = torch.device("cuda:0")
+# properties = driver
+
+@triton.jit
+def softmax_kernel(
+    o_ptr, x_ptr, 
+    input_row_stride,    # 输入行的stride，stride指从当前行跳到下一行的同列位置的步长
+    output_row_stride, n_cols, BLOCK_SIZE: tl.constexpr
+):
+    # 当前的程序id即为索引的行
+    row_idx = tl.program_id(0)
+    # 行起始的位置为行数×行步长
+    row_start_ptr = x_ptr + row_idx * input_row_stride
+    
+    col_offsets = tl.arange(0, BLOCK_SIZE)
+    input_ptrs = row_start_ptr + col_offsets
+    # 将一行数据加载进 SRAM, 因为 BLOCK_SIZE 可能会比 n_cols 大，加上mask，多出来的部分补上负无穷
+    row = tl.load(input_ptrs, mask=col_offsets < n_cols, other=-float('inf'))
+    
+    # 处于数值稳定性的考虑，减去最大值
+    row_minus_max = row - tl.max(row, axis=0)
+    numerator = tl.exp(row_minus_max)
+    denominator = tl.sum(numerator, axis=0)
+    softmax_output = numerator / denominator
+    # 将数据写回 DRAM
+    output_row_start_ptr = o_ptr + row_idx * output_row_stride
+    output_ptrs = output_row_start_ptr + col_offsets
+    tl.store(output_ptrs, softmax_output, mask=col_offsets < n_cols)
+
+def softmax(x):
+    n_rows, n_cols = x.shape
+    # block size 需要为大于 n_cols 的 2 的幂
+    BLOCK_SIZE = triton.next_power_of_2(n_cols)
+
+    num_warps = 4
+    if BLOCK_SIZE >= 2048:
+        num_warps = 8
+    if BLOCK_SIZE >= 4096:
+        num_warps = 16
+    y = torch.empty_like(x)
+    # 为每行分配一个block
+    softmax_kernel[(n_rows,)](
+        y,
+        x,
+        x.stride(0),
+        y.stride(0),
+        n_cols,
+        num_warps=num_warps,
+        BLOCK_SIZE=BLOCK_SIZE,
+    )
+    return y
+
+
+torch.manual_seed(0)
+x = torch.randn(1823, 781, device='cuda')
+y_triton = softmax(x)
+y_torch = torch.softmax(x, axis=1)
+assert torch.allclose(y_triton, y_torch), (y_triton, y_torch)
+```
+
+
+### 矩阵相乘
+
+一种思路是将一个矩阵的一行和另一个矩阵的一列相乘，假设矩阵 `a` 的大小为 $m\times n$，矩阵 `b` 的大小为 $n\times k$，则可以同时用 $m\times k$ 个块计算。
+
+```python
+import torch
+from torch import Tensor
+
+import triton
+import triton.language as tl
+
+@triton.jit
+def matmul_kernel(a_ptr, b_ptr, c_ptr, 
+                  a_row_stride, b_row_stride, b_col_stride, c_row_stride, c_col_stride, 
+                  m, n, k,  block_size: tl.constexpr):
+    x_pid = tl.program_id(0)
+    y_pid = tl.program_id(1)
+    
+    a_offsets = tl.arange(0, block_size)
+    a_ptrs = a_ptr + x_pid * a_row_stride + a_offsets  # 获取 a 矩阵的一行
+    
+    a = tl.load(a_ptrs, mask=a_offsets < n)
+    
+    b_offsets = tl.arange(0, block_size) * b_row_stride
+    b_ptrs = b_ptr + y_pid * b_col_stride + b_offsets
+    b = tl.load(b_ptrs, mask=b_offsets < n * b_row_stride)   # 获取 b 矩阵的一列
+    
+    c = tl.sum(a * b)   # 计算一行和一列的点乘
+    
+    c_offset = x_pid * c_row_stride + y_pid * c_col_stride  # 写入对应位置
+    tl.store(c_ptr + c_offset, c, mask=c_offset < m * k)
+
+def matmul(a: Tensor, b: Tensor):
+    m, n = a.shape
+    n, k = b.shape
+    
+    block_size = triton.next_power_of_2(n)
+    
+    c = torch.empty((m, k), device=a.device, dtype=a.dtype)
+    
+    matmul_kernel[(m, k)](a, b, c, a.stride(0), b.stride(0), b.stride(1), 
+                          c.stride(0), c.stride(1), m, n, k, block_size)
+    return c
+    
+x = torch.randn((256, 133), device="cuda",)
+y = torch.randn((133, 256), device="cuda",)
+
+z_triton = matmul(x, y)
+z_torch = torch.matmul(x, y)
+
+print(torch.allclose(z_torch, z_triton, atol=1e-2, rtol=0))
+print((z_torch - z_triton).abs().max())
+```
+
+另外一种思路见 [triton/python/tutorials/03-matrix-multiplication.py at v2.1.0 · triton-lang/triton](https://github.com/triton-lang/triton/blob/v2.1.0/python/tutorials/03-matrix-multiplication.py)
+
+
+### Dropout
+
+Dropout的实现比较简单，类似向量相加的执行形式即可
+
+需要注意 `tl.rand` 产生 0-1 的随机数，使用 `tl.where` 对部分元素置为0。
+
+```python
+import torch
+from torch import Tensor
+import triton
+import triton.language as tl
+
+
+@triton.jit
+def dropout_kernel(x_ptr, o_ptr, seed, p, n_ele, block_size: tl.constexpr):
+    pid = tl.program_id(0)
+    offsets = pid * block_size + tl.arange(0, block_size)
+
+    x = tl.load(x_ptr + offsets, mask=offsets < n_ele)
+    random = tl.rand(seed, offsets)
+    x_keep = random > p
+    
+    o = tl.where(x_keep, x / (1 - p), 0.0)
+    tl.store(o_ptr+offsets, o, mask=offsets < n_ele)
+
+def dropout(x, seed, p):
+    output = torch.empty_like(x)
+    n_ele = x.numel()
+    grid = lambda meta: (triton.cdiv(n_ele, meta['block_size']), )
+    
+    dropout_kernel[grid](x, output, seed, p, n_ele, 128)
+    
+    return output
+```
+
+
+### ReLU 前向和后向
+
+ReLU 的前向小于0的置零，可以用 `tl.maximun(0, x)` 实现，后向过程中，小于0的部分的导数置为零。
+
+
+
+
+### LayerNorm 前向和后向
+
+LayerNorm 的公式为
+
+$$
+y = \frac{x-E[x]}{\sqrt{Var(x)+\epsilon}} * w + b
+$$
+
+
+
+
+# CUDA 原生
 ## conda
 
 ### conda 环境管理
