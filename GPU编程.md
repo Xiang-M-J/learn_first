@@ -267,7 +267,7 @@ def dropout(x, seed, p):
 
 ### ReLU 前向和后向
 
-ReLU 的前向小于0的置零，可以用 `tl.maximun(0, x)` 实现，后向过程中，小于0的部分的导数置为零。
+ReLU 的前向小于0的置零，可以用 `tl.maximun(0, x)` 实现，后向过程中，小于0的部分的导数置为零，否则直接保留下来。
 
 ```python
 @triton.jit
@@ -325,14 +325,255 @@ def triton_relu(x: torch.Tensor, BLOCK_SIZE: int = 1024) -> torch.Tensor:
 
 ### LayerNorm 前向和后向
 
+#### 前向过程
+
 LayerNorm 的前向公式为
 
 $$
 y = \frac{x-E[x]}{\sqrt{Var(x)+\epsilon}} * w + b
 $$
+前向过程的代码如下
 
-反向比较复杂
+```python
+@triton.jit
+def layernorm_fwd_kernel(
+    X, Y, W, B, Mean, Rstd,  # pointers
+    stride, n_cols, eps, BLOCK_SIZE: tl.constexpr):
+    # 索引到对应的行
+    row = tl.program_id(0)
+    Y += row * stride
+    X += row * stride
+    # 计算均值
+    mean = 0
+    _mean = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
+    
+    # 将一行分成多个block计算
+    for off in range(0, n_cols, BLOCK_SIZE):   
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        a = tl.load(X + cols, mask=cols < n_cols, other=0.).to(tl.float32)
+        _mean += a
+    mean = tl.sum(_mean, axis=0) / n_cols
+    
+    # 计算方差
+    _var = tl.zeros([BLOCK_SIZE], dtype=tl.float32)
+    for off in range(0, n_cols, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        x = tl.load(X + cols, mask=cols < n_cols, other=0.).to(tl.float32)
+        x = tl.where(cols < n_cols, x - mean, 0.)
+        _var += x * x
+    var = tl.sum(_var, axis=0) / n_cols
+    rstd = 1 / tl.sqrt(var + eps)
+    # 写入均值、方差
+    tl.store(Mean + row, mean)
+    tl.store(Rstd + row, rstd)
+    # 归一化
+    for off in range(0, n_cols, BLOCK_SIZE):
+        cols = off + tl.arange(0, BLOCK_SIZE)
+        mask = cols < n_cols
+        w = tl.load(W + cols, mask=mask)
+        b = tl.load(B + cols, mask=mask)
+        x = tl.load(X + cols, mask=mask, other=0.).to(tl.float32)
+        x_hat = (x - mean) * rstd
+        y = x_hat * w + b
+        tl.store(Y + cols, y, mask=mask)
+```
 
+
+#### 反向传播
+
+反向比较复杂，令 $\hat{x}$ 为归一化后的输入 $\frac{ x - \text{E}[x] }{ \sqrt{\text{Var}(x) + \epsilon} }$，则对于 $x$ 的导数为
+
+$$
+\nabla_{x} = \frac{1}{\sigma}\Big( \nabla_{y} \odot w - \underbrace{ \big( \frac{1}{N} \hat{x} \cdot (\nabla_{y} \odot w) \big) }_{c_1} \odot \hat{x} - \underbrace{ \frac{1}{N} \nabla_{y} \cdot w }_{c_2} \Big)
+$$
+$\cdot$ 表示点乘，权重 $w$ 和偏置 $b$ 的导数为
+$$
+\nabla_{w} = \nabla_{y} \odot \hat{x} \quad  \quad \nabla_{b} = \nabla_{y}
+$$
+
+
+同时在编程时需要注意权重和偏置对于所有行都生效，因此在读取和写入时需要加上锁
+
+```python
+@triton.jit
+def layernorm_bwd_kernel_dx(
+    DX, DY, DW, DB, X, W, B, Mean, Rstd, Lock,  # pointers，DW 和 DB 为部分和
+    stride, n_cols, eps, GROUP_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr):
+    # 偏移到计算的位置
+    row = tl.program_id(0)
+    cols = tl.arange(0, BLOCK_SIZE_N)
+    mask = cols < n_cols
+    X += row * stride
+    DY += row * stride
+    DX += row * stride
+    
+    # group_size个行分为一组
+    lock_id = row % GROUP_SIZE_M
+    Lock += lock_id
+    Count = Lock + GROUP_SIZE_M
+    DW = DW + lock_id * n_cols + cols
+    DB = DB + lock_id * n_cols + cols
+    # 加载数据
+    x = tl.load(X + cols, mask=mask, other=0).to(tl.float32)
+    dy = tl.load(DY + cols, mask=mask, other=0).to(tl.float32)
+    w = tl.load(W + cols, mask=mask).to(tl.float32)
+    mean = tl.load(Mean + row)
+    rstd = tl.load(Rstd + row)
+    # 计算 dx
+    xhat = (x - mean) * rstd
+    wdy = w * dy
+    xhat = tl.where(mask, xhat, 0.)
+    wdy = tl.where(mask, wdy, 0.)
+    c1 = tl.sum(xhat * wdy, axis=0) / n_cols
+    c2 = tl.sum(wdy, axis=0) / n_cols
+    dx = (wdy - (xhat * c1 + c2)) * rstd
+    # 写入 dx
+    tl.store(DX + cols, dx, mask=mask)
+    # dw/db 对计算累计和
+    partial_dw = (dy * xhat).to(w.dtype)
+    partial_db = (dy).to(w.dtype)
+    
+    # 自旋锁，试图将锁从0设置为1，如果失败就继续等待
+    while tl.atomic_cas(Lock, 0, 1) == 1:
+        pass
+    count = tl.load(Count)
+    # 如果count为0，直接写入，否则需要加载之前的值再写入
+    if count == 0:
+        tl.atomic_xchg(Count, 1)
+    else:
+        partial_dw += tl.load(DW, mask=mask)
+        partial_db += tl.load(DB, mask=mask)
+    tl.store(DW, partial_dw, mask=mask)
+    tl.store(DB, partial_db, mask=mask)
+    # 释放锁
+    tl.atomic_xchg(Lock, 0)
+
+@triton.jit
+def layernorm_bwd_kernel_dwdb(
+    DW, DB, FINAL_DW, FINAL_DB,  # pointers
+    group_size, n_cols, BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr):
+    # 移动到该计算的位置
+    pid = tl.program_id(0)
+    cols = pid * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    dw = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    db = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    # 迭代 DW 和 DB 的所有行，DW的一行代表原本的一个group_size的行
+    for i in range(0, group_size, BLOCK_SIZE_M):
+        rows = i + tl.arange(0, BLOCK_SIZE_M)
+        mask = (rows[:, None] < group_size) & (cols[None, :] < n_cols)
+        offs = rows[:, None] * n_cols + cols[None, :]
+        dw += tl.load(DW + offs, mask=mask, other=0.)
+        db += tl.load(DB + offs, mask=mask, other=0.)
+    # 写入最终的结果
+    sum_dw = tl.sum(dw, axis=0)
+    sum_db = tl.sum(db, axis=0)
+    tl.store(FINAL_DW + cols, sum_dw, mask=cols < n_cols)
+    tl.store(FINAL_DB + cols, sum_db, mask=cols < n_cols)
+```
+
+
+#### 完整函数
+
+将前向和后向过程结合在一起
+
+```python
+class LayerNorm(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, normalized_shape, weight, bias, eps):
+        # allocate output
+        y = torch.empty_like(x)
+        # 将输入reshape为二维数据
+        x_arg = x.reshape(-1, x.shape[-1])
+        M, N = x_arg.shape
+        mean = torch.empty((M, ), dtype=torch.float32, device='cuda')
+        rstd = torch.empty((M, ), dtype=torch.float32, device='cuda')
+        
+        MAX_FUSED_SIZE = 65536 // x.element_size()
+        BLOCK_SIZE = min(MAX_FUSED_SIZE, triton.next_power_of_2(N))
+        if N > BLOCK_SIZE:
+            raise RuntimeError("This layer norm doesn't support feature dim >= 64KB.")
+        
+        num_warps = min(max(BLOCK_SIZE // 256, 1), 8)
+        
+        layernorm_fwd_kernel[(M,)](x_arg, y, weight, bias, mean, rstd,
+                                    x_arg.stride(0), N, eps,
+                                    BLOCK_SIZE=BLOCK_SIZE, num_warps=num_warps)
+        ctx.save_for_backward(x, weight, bias, mean, rstd)
+        ctx.BLOCK_SIZE = BLOCK_SIZE
+        ctx.num_warps = num_warps
+        ctx.eps = eps
+        return y
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, w, b, m, v = ctx.saved_tensors
+        N = w.shape[0]
+        # 根据行数设置group_size的大小
+        GROUP_SIZE_M = 64
+        if N <= 8192: GROUP_SIZE_M = 96
+        if N <= 4096: GROUP_SIZE_M = 128
+        if N <= 1024: GROUP_SIZE_M = 256
+
+        locks = torch.zeros(2 * GROUP_SIZE_M, dtype=torch.int32, device='cuda')
+        # _dw 和 _db 是部分和，相当于临时的梯度
+        _dw = torch.empty((GROUP_SIZE_M, w.shape[0]), dtype=x.dtype, device=w.device)
+        _db = torch.empty((GROUP_SIZE_M, w.shape[0]), dtype=x.dtype, device=w.device)
+        dw = torch.empty((w.shape[0],), dtype=w.dtype, device=w.device)
+        db = torch.empty((w.shape[0],), dtype=w.dtype, device=w.device)
+        dx = torch.empty_like(dy)
+        x_arg = x.reshape(-1, x.shape[-1])
+        M, N = x_arg.shape
+        layernorm_bwd_kernel_dx[(M,)](dx, dy, _dw, _db, x, w, b, m, v, locks,
+                                       x_arg.stride(0), N, ctx.eps,
+                                       BLOCK_SIZE_N=ctx.BLOCK_SIZE,
+                                       GROUP_SIZE_M=GROUP_SIZE_M,
+                                       num_warps=ctx.num_warps)
+        grid = lambda meta: [triton.cdiv(N, meta['BLOCK_SIZE_N'])]
+        layernorm_bwd_kernel_dwdb[grid](_dw, _db, dw, db, GROUP_SIZE_M, N,
+                                   BLOCK_SIZE_M=32,
+                                   BLOCK_SIZE_N=128)
+        return dx, None, dw, db, None
+
+layer_norm = LayerNorm.apply
+```
+
+
+#### 正确性检验
+
+```python
+def test_layer_norm(M, N, dtype, eps=1e-5, device='cuda'):
+    # create data
+    x_shape = (M, N)
+    w_shape = (x_shape[-1], )
+    weight = torch.rand(w_shape, dtype=dtype, device='cuda', requires_grad=True)
+    bias = torch.rand(w_shape, dtype=dtype, device='cuda', requires_grad=True)
+    x = -2.3 + 0.5 * torch.randn(x_shape, dtype=dtype, device='cuda')
+    dy = .1 * torch.randn_like(x)
+    x.requires_grad_(True)
+    # forward pass
+    y_tri = layer_norm(x, w_shape, weight, bias, eps)
+    y_ref = torch.nn.functional.layer_norm(x, w_shape, weight, bias, eps).to(dtype)
+    # backward pass (triton)
+    y_tri.backward(dy, retain_graph=True)
+    dx_tri, dw_tri, db_tri = [_.grad.clone() for _ in [x, weight, bias]]
+    x.grad, weight.grad, bias.grad = None, None, None
+    # backward pass (torch)
+    y_ref.backward(dy, retain_graph=True)
+    dx_ref, dw_ref, db_ref = [_.grad.clone() for _ in [x, weight, bias]]
+    # compare
+    assert torch.allclose(y_tri, y_ref, atol=1e-2, rtol=0)
+    assert torch.allclose(dx_tri, dx_ref, atol=1e-2, rtol=0)
+    assert torch.allclose(db_tri, db_ref, atol=1e-2, rtol=0)
+    assert torch.allclose(dw_tri, dw_ref, atol=1e-2, rtol=0)
+
+test_layer_norm(100, 256, torch.float32)
+```
+
+
+### 注意力
+
+详见 [triton/python/tutorials/06-fused-attention.py](https://github.com/triton-lang/triton/blob/v2.1.0/python/tutorials/06-fused-attention.py)
 
 
 # CUDA 原生
