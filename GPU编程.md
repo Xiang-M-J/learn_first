@@ -4,6 +4,8 @@
 
 Triton 提供了一种使用python进行gpu编程的方法，相比于直接使用CUDA更加方便
 
+[BobMcDear/attorch](https://github.com/BobMcDear/attorch)：基于Triton实现了部分Pytorch网络（Conv、Multihead、一些激活函数和归一化）
+
 ## 基础
 
 Triton中使用 `triton.jit` 修饰核函数，核函数运行在设备（GPU）上，需要将数据提前送入设备中。

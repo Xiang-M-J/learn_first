@@ -2,11 +2,7 @@ API 文档：https://api.flutter.dev/flutter
 
 [本章目录 | 《Flutter 实战·第二版》 (flutterchina.club)](https://book.flutterchina.club/chapter1/)
 
-
-
 > flutter json 转 model，使用 json_to_model
-
-
 
 **flutter 构建 apk**
 
@@ -22,18 +18,13 @@ flutter build apk
 flutter build apk -t lib\main_1.dart
 ```
 
-
-
 ## Java/Kotlin 插件开发
-
 
 
 > [!WARNING] Title
 > 如果需要在 flutter 端和原生端之间传输大量数据，两者之间的通信是需要花费明显的时间，可能达到 20ms。
 
-
 ### 基本知识
-
 
 #### 如何创建插件
 
@@ -1116,32 +1107,13 @@ if(_audioSubscription == null){
 
 
 
-
-
-
-
-
-
 ## 基于 C++ 插件开发
-
-
-
-
 
 [向您的项目添加 C 和 C++ 代码  | Android Studio  | Android Developers](https://developer.android.google.cn/studio/projects/add-native-code?hl=zh-cn)
 
-
-
 一个示例插件：[Xiang-M-J/flutter_jni_plugin_example](https://github.com/Xiang-M-J/flutter_jni_plugin_example)
 
-
-
-
-
 一些功能可能难以使用 `Java/Kotlin` 编写，如某些硬件可能只提供了 C++ 库作为操作接口，为了调用这些库，可以考虑使用 JNI 技术在 Java 中调用 C++/C。
-
-
-
 
 
 ### 基本知识
@@ -1167,14 +1139,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 ```
 
 
-
-
-
 `native-lib.cpp` 的内容如下
-
-
-
-
 
 ```cpp
 #include <jni.h>
@@ -1189,13 +1154,7 @@ Java_com_example_test_1jni_MainActivity_stringFromJNI(
 }
 ```
 
-
-
-
-
 `MainActivity.kt` 的内容如下
-
-
 
 ```kotlin
 class MainActivity : AppCompatActivity() {
@@ -1224,12 +1183,7 @@ class MainActivity : AppCompatActivity() {
 ```
 
 
-
-
-
 此外在 `test_jni\android\app\build.gradle` 中添加了指定 `CMakeLists.txt` 的配置
-
-
 
 ```json
 android{
@@ -1243,17 +1197,9 @@ android{
 ```
 
 
-
-
-
 上面的内容可以直接移植到其它项目，如 flutter 插件项目。
 
-
-
-
-
 如果 `C++` 中调用了一些链接库， 可以在 `test_jni\android\app\src\main` 目录下创建 `jniLibs` 文件夹存放这些链接库，一般是 `.so` 文件。`jniLibs` 文件夹的结构一般如下
-
 
 
 ```
@@ -1264,13 +1210,7 @@ jniLibs
 		- librknnrt.so
 ```
 
-
-
-
-
 然后在 `CMakeLists.txt` 中的 `target_link_libraries` 添加链接库路径（具体根据实际情况来定）
-
-
 
 ```cmake
 cmake_minimum_required(VERSION 3.22.1)
@@ -1294,12 +1234,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 ```
 
 
-
-
-
 然后在 `import_rknn\android\build.gradle` 中指定 `C/C++` 的编译方式，如果使用的链接库仅支持部分架构，可以添加架构过滤器。
-
-
 
 ```json
 android {
@@ -1323,10 +1258,6 @@ android {
 
 ```
 
-
-
-
-
 > [!NOTE] 
 >
 > 如果希望添加新的 `jni` 函数，可以现在 Kotlin 文件中定义函数
@@ -1340,13 +1271,7 @@ android {
 > 然后利用 Android Studio 自带的纠错功能在 native-lib.cpp 中添加函数。
 
 
-
-
-
-
-
 ### 常用功能
-
 
 
 下面介绍一些 c++ 端的常用功能
@@ -1354,12 +1279,7 @@ android {
 #### 日志功能
 
 
-
-
-
 输出信息和错误的函数（使用 printf 输出不会显示）
-
-
 
 ```cpp
 #include <android/log.h>
@@ -1371,21 +1291,10 @@ android {
 LOGI("hello, %d", 1)
 ```
 
-
-
-
-
-
-
 #### 数据类型转换
 
 
-
-
-
 **ByteArray (Kotlin), jbyteArray (jni) 转 uint8_t * (c++)**
-
-
 
 ```cpp
 extern "C"
@@ -1402,7 +1311,6 @@ Java_com_example_import_1rknn_ImportRknnPlugin_initModel(JNIEnv *env, jobject th
     return init_model(u8_model_data, model_len);
 }
 ```
-
 
 
 **FloatArray (Kotlin), jfloatArray (jni) 转 jfloat * (c++)**
@@ -1439,10 +1347,7 @@ env->SetFloatArrayRegion(jspec, 0, frameSize, spec);
 ## build.gradle 任务
 
 
-
 ### Debug 任务
-
-
 
 在 android/app/build.gradle 中
 
@@ -1474,8 +1379,6 @@ preBuild.dependsOn cleanTempFiles
 
 ### release 任务
 
-
-
 ```json
 
 task preReleaseBuildTask{
@@ -1501,10 +1404,7 @@ tasks.whenTaskAdded { task ->
 
 ```
 
-
-
 ## 编写链接库
-
 
 ### flutter 端
 
@@ -1649,29 +1549,22 @@ flutter build web --web-renderer html
 flutter build web --release
 ```
 
- 
-
 ### 基本知识
 
 `flutter` 是跨平台的，一套代码适用于 ios、Android、web、Macos、Linux 和 windows。对于不需要的平台，可以直接删除文件夹。
 
 `pubspec.yaml` 文件中声明了依赖、flutter 使用的资源
 
-
-
 ## 控件
 
 **flutter 中可以放置多个控件的容器**：
 
 1. [Row](https://api.flutter.dev/flutter/widgets/Row-class.html) 和 [Column](https://api.flutter.dev/flutter/widgets/Column-class.html)
-
 2. [GridView](https://api.flutter.dev/flutter/widgets/GridView-class.html)
-
 3. [ListView](https://api.flutter.dev/flutter/widgets/ListView-class.html)
 4. [Stack](https://api.flutter.dev/flutter/widgets/Stack-class.html)
 5. [Flex](https://api.flutter.dev/flutter/widgets/Flex-class.html) + [Expanded](https://api.flutter.dev/flutter/widgets/Expanded-class.html) 实现弹性窗口
 6. [Wrap](https://api.flutter.dev/flutter/widgets/Wrap-class.html)
-
 
 
 **可以用来占位调节位置的组件**：
@@ -1700,16 +1593,11 @@ const SizedBox(height: 10),
 ```
 
 
-
 ### 两种窗口
 
 flutter 中有 `StatelessWidget` 和 `StatefulWidget`，顾名思义，`StatelessWidget` 是一个不需要状态更改的 widget（没有要管理的内部状态），当界面部分不依赖于对象本身中的配置信息以及 widget 的 `BuildContext` 时，可以使用 `StatelessWidget`。`StatefulWidget` 是可变状态的 widget。 使用 `setState` 方法管理 `StatefulWidget` 的状态的改变。调用 `setState` 告诉 Flutter 框架，某个状态发生了变化，Flutter 会重新运行 build 方法，以便应用程序可以应用最新状态。
 
-
-
 如果用户与 widget 交互，widget 会发生变化，那么它就是 **有状态的**。
-
-
 
 ```dart
 // StatelessWidget
@@ -1750,7 +1638,6 @@ class _MyStatefulWidgetState extends State<MyStatefulWidget> {
 ```
 
 
-
 ### 控件的组合
 
 在 flutter 中，如果希望在一个界面放置多个控件，需要使用 `Row`、`Column` 等包装起来：
@@ -1789,8 +1676,6 @@ return Scaffold(
 
 > 使用 `const spacer()` 可以自动排列控件。
 
-
-
 ### AppBar
 
 如果需要界面上面存在返回键，可以加上 `appBar: AppBar(),`
@@ -1811,8 +1696,6 @@ class Page extends StatelessWidget{
   }
 }
 ```
-
-
 
 ### Drawer 左侧菜单
 
@@ -1876,8 +1759,6 @@ class _MyHomePageState extends State<MyHomePage> {
 Scaffold.of(context).openDrawer();
 ```
 
-
-
 ### TabBar 选项卡
 
 选项卡 TabBar，放在 AppBar 中，在非 MaterialApp 的环境下不会影响返回键的显示
@@ -1907,8 +1788,6 @@ Widget build(BuildContext context) {
   }
 ```
 
-
-
 ### Container 容器
 
 ```dart
@@ -1927,8 +1806,6 @@ Container(
 ```
 
 double.infinity 和 double.maxFinite 可以让当前元素的 width 或者 height 达到父元素的尺寸
-
-
 
 ### 动态列表
 
@@ -1993,10 +1870,6 @@ Flexible(
 ),
 ```
 
-
-
-
-
 ### BottomNavigationBar 底部导航
 
 ```dart
@@ -2050,8 +1923,6 @@ class _TabsState extends State<Tabs>{
 }
 ```
 
-
-
 ### Toast
 
 使用 fluttertoast 插件，显示 toast 的代码：
@@ -2067,8 +1938,6 @@ Fluttertoast.showToast(
     fontSize: 16.0
 );
 ```
-
-
 
 ### 弹出列表菜单 PopupMenuButton
 
@@ -2108,8 +1977,6 @@ class Mymenu extends StatelessWidget {
   }
 }
 ```
-
-
 
 ### floatingActionButton 悬浮按钮
 
@@ -2156,9 +2023,6 @@ class BodyState extends State<Body> {
   }
 }
 ```
-
-
-
 
 
 ## 动画
@@ -2245,8 +2109,6 @@ class _RepeatAnimation extends State<RepeatAnimation> with SingleTickerProviderS
   }
 }
 ```
-
-
 
 ## 跳转
 
@@ -2373,10 +2235,6 @@ class _ScreenState extends State<Screen> {
 
 详见 [Flutter | 深入浅出 Key - 掘金 (juejin.cn)](https://juejin.cn/post/6844903811870359559)
 
-
-
-
-
 ### 传递数据到新页面
 
 创建一个待办事项列表，当某个事项被点击的时候，会跳转到新的一屏，在新的一屏显示待办事项的详细信息。
@@ -2425,8 +2283,6 @@ class todosScreen extends StatelessWidget {
 }
 ```
 
-
-
 ```dart
 // detailScreen.dart
 import 'package:flutter/material.dart';
@@ -2452,8 +2308,6 @@ class detailScreen extends StatelessWidget {
 ```
 
 另外一种传递方式：[传递数据到新页面 - Flutter 中文文档 - Flutter 中文开发者网站 - Flutter](https://flutter.cn/docs/cookbook/navigation/passing-data#alternatively-pass-the-arguments-using-routesettings)
-
-
 
 ### 页面回传数据
 
@@ -2500,8 +2354,6 @@ class SelectionScreen extends StatelessWidget {
       ),
 ...
 ```
-
-
 
 ## 操作
 
@@ -2565,8 +2417,6 @@ FlutterTts flutterTts = FlutterTts();
 await flutterTts.speak("中午好，今天天气真不错");
 ```
 
-
-
 #### 语音识别
 
 使用 speech_to_text 包，
@@ -2587,8 +2437,6 @@ defaultConfig {
         versionName flutterVersionName
     }
 ```
-
-
 
 ### flutter 解析 json
 
@@ -2626,7 +2474,6 @@ List<Widget> _initView(){
     return list;
 }
 ```
-
 
 
 ### 一键切换主题
@@ -2743,8 +2590,6 @@ setState(() {
 SpHelper.putString('key_theme_color', key);
 Provider.of<AppInfoProvider>(context).setTheme(key);
 ```
-
-
 
 ### 明暗切换
 
@@ -2873,8 +2718,6 @@ logger.e("Error", error: 'Test Error');
 logger.f("fatal", error: error, stackTrace: stackTrace);
 ```
 
-
-
 读取日志文件：
 
 ```dart
@@ -2886,12 +2729,10 @@ final contents = await file.readAsString();
 print(contents);
 ```
 
-
 ## Getx 框架
 
 
 Getx 框架集成了开发中许多重要内容（状态管理，依赖，路径等），这样方便开发。同时 Getx 简化了 flutter 中的许多设计，并且可以实现解耦视图和业务逻辑。
-
 
 ### 一个例子：实现点击计数
 
@@ -3076,13 +2917,11 @@ Get.off(NextScreen());
 Get.offAll(NextScreen());
 ```
 
-
-
 ## onnxruntime
 
 [onnxruntime | Flutter package](https://pub.dev/packages/onnxruntime)
 
-onnxruntime 用于在 flutter 中运行神经网络。
+onnxruntime 用于在 flutter 中部署训练好的神经网络。
 
 ### 引用
 
@@ -3315,17 +3154,14 @@ sendPort?.send([micFrame, refFrame]);
 可能是组件前面加上了 const 前缀
 
 
-
 > No Material widget found. ListTile widgets require a Material widqet ancestor wtthin the closest LookupBoundary. In Material Design, most wdgets are conceptualy "printed" on a sheet of material. In Flutters material library, that material is represe nted by the Material widget it is the Materal widget that renders ink splashes, forinstance.Because of this, many material lbrary wldgets requt e that there be a Material widget in the tree above them.
 
 使用的组件没有被 Material 组件（Material、Scaffold 等）包裹。
 
 
-
 > RenderFlex children have non-zero flex but incoming height constraints are unbounded.
 
 给 Flex 组件外侧套一层 Container 并设定高度
-
 
 
 > Vertical viewport was given unbounded height.
@@ -3338,9 +3174,6 @@ ListView(
     children: _initView(),
 )
 ```
-
-
-
 
 
 
