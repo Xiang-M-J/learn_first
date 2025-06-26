@@ -4,7 +4,10 @@
 
 Triton 提供了一种使用python进行gpu编程的方法，相比于直接使用CUDA更加方便
 
+[rkinas/triton-resources](https://github.com/rkinas/triton-resources)：包含了一些 Triton 的资源
+
 [BobMcDear/attorch](https://github.com/BobMcDear/attorch)：基于Triton实现了部分Pytorch网络（Conv、Multihead、一些激活函数和归一化）
+
 
 ## 基础
 
@@ -106,6 +109,8 @@ benchmark.run(print_data=True, show_plots=True)
 
 对于多维向量，为了能够准确找到每行的起始位置，需要获得张量当前行和下一行的相同列的元素之间的步长（该值可能和列数相等，也有可能不相等）
 
+由于Softmax是在全局层次上求，因此线程之间需要同步，所以通过设置warp的数量来控制，一个warp往往包含了32个线程。
+
 ```python
 import torch
 
@@ -114,14 +119,13 @@ import triton.language as tl
 from triton.runtime import driver
 
 DEVICE = torch.device("cuda:0")
-# properties = driver
+
 
 @triton.jit
 def softmax_kernel(
     o_ptr, x_ptr, 
     input_row_stride,    # 输入行的stride，stride指从当前行跳到下一行的同列位置的步长
-    output_row_stride, n_cols, BLOCK_SIZE: tl.constexpr
-):
+    output_row_stride, n_cols, BLOCK_SIZE: tl.constexpr):
     # 当前的程序id即为索引的行
     row_idx = tl.program_id(0)
     # 行起始的位置为行数×行步长
@@ -228,7 +232,7 @@ print(torch.allclose(z_torch, z_triton, atol=1e-2, rtol=0))
 print((z_torch - z_triton).abs().max())
 ```
 
-另外一种思路见 [triton/python/tutorials/03-matrix-multiplication.py at v2.1.0 · triton-lang/triton](https://github.com/triton-lang/triton/blob/v2.1.0/python/tutorials/03-matrix-multiplication.py)
+这样做，内存的优化不好，一种优化的思路是每次读取更多的行，具体见 [03-matrix-multiplication.py at v2.1.0](https://github.com/triton-lang/triton/blob/v2.1.0/python/tutorials/03-matrix-multiplication.py)
 
 
 ### Dropout

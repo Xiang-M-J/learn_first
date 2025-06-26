@@ -268,3 +268,86 @@ public:
 
 在实现上单例模式确保了只有⼀个全局注册表实例，并且可以在代码的任何地方访问该注册表。⼯⼚模式则负责根据算子的类型返回相应的算子实例。这种注册机制的设计使得推理框架能够感知到开发者已经实现的算子，并且能够方便地调用和使用这些算子。
 
+
+# Linux服务器
+
+
+## 在wsl中实现端口监听
+
+因为没有Linux 系统，因此只能在wsl子系统中执行，下面介绍如何在wsl系统运行一个程序监听某个端口，并在Windows中访问该端口
+
+代码如下
+
+```c++
+#include <iostream>
+#include <cstring>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+int main()
+{
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd == -1)
+    {
+        perror("socket");
+        return 1;
+    }
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(8755);              // 监听 8755 端口
+    addr.sin_addr.s_addr = htonl(INADDR_ANY); // 绑定到 0.0.0.0
+
+    if (bind(server_fd, (sockaddr *)&addr, sizeof(addr)) == -1)
+    {
+        perror("bind");
+        return 1;
+    }
+
+    if (listen(server_fd, 5) == -1)
+    {
+        perror("listen");
+        return 1;
+    }
+
+    std::cout << "Listening on port 8080...\n";
+
+    while (true)
+    {
+        sockaddr_in client{};
+        socklen_t client_len = sizeof(client);
+        int client_fd = accept(server_fd, (sockaddr *)&client, &client_len);
+        if (client_fd == -1)
+        {
+            perror("accept");
+            continue;
+        }
+
+        const char *msg =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: 24\r\n"
+            "\r\n"
+            "Hello from WSL2 server!\n";
+        send(client_fd, msg, strlen(msg), 0);
+
+        close(client_fd);
+    }
+
+    close(server_fd);
+    return 0;
+}
+```
+
+运行程序后，如果想要在Windows中访问该端口，需要通过下面这个命令查看wsl的IP地址
+
+```sh
+hostname -I
+```
+
+结果形似172.xx.xx.xxx
+
+在Windows中访问 172.xx.xx.xxx:port 即可，port为代码中指定的监听端口。
+
+
+
