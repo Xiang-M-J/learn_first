@@ -103,6 +103,39 @@ benchmark.run(print_data=True, show_plots=True)
 ## 例子
 
 
+### 外积
+
+计算两个向量 $x$ 和 $y$ 的外积
+  
+$$z_{j, i} = x_i + y_j \quad i = 1\ldots N_0,\ j = 1\ldots N_1$$
+需要注意mask的形式，先计算 $z$ 的横纵坐标，再分别对横纵坐标进行限制得到mask。
+
+
+```python
+@triton.jit
+def mul_relu_block_kernel(x_ptr, y_ptr, z_ptr, N0, N1, B0: tl.constexpr, B1: tl.constexpr):
+    pid_0 = tl.program_id(0)
+    pid_1 = tl.program_id(1)
+
+    x_range = pid_0 * B0 + tl.arange(0, B0)
+    y_range = pid_1 * B1 + tl.arange(0, B1)
+
+    x = tl.load(x_ptr + x_range, x_range < N0)
+    y = tl.load(y_ptr + y_range, y_range < N1)
+
+    z = x[None, :] * y[:, None]
+    z = tl.where(z > 0, z, 0)
+
+    z_row = pid_1 * B1 + tl.arange(0, B1)[:, None]
+    z_col = pid_0 * B0 + tl.arange(0, B0)[None, :]
+
+    mask = (z_row < N1) & (z_col < N0)
+    tl.store(z_ptr + z_row * N0 + z_col, z, mask)
+    return
+```
+
+
+
 ### Softmax
 
 对于二维向量，softmax可以通过对每行进行softmax来实现加速，下面给出一个对单行进行softmax的核函数。
