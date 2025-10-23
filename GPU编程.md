@@ -1677,6 +1677,108 @@ cudaDriverGetVersion(&driverVersion);
 ## 实践
 
 
+### 遗忘门
+
+使用cuda实现如下功能
+
+```python
+class CPUForgetMult(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, f, x, hidden_init=None):
+        result = []
+        forgets = f.split(1, dim=0)
+        prev_h = hidden_init
+        for i, h in enumerate((f * x).split(1, dim=0)):
+            if prev_h is not None: h = h + (1 - forgets[i]) * prev_h
+            h = h.view(h.size()[1:])
+            result.append(h)
+            prev_h = h
+        return torch.stack(result)
+```
+
+首先前向过程可以写成
+
+$$
+\eqalign{
+  & h(0) = 0  \cr 
+  & h(t) = f(t)*x(t) + \left( {1 - f(t)} \right)*h(t - 1) \cr} 
+$$
+
+```c++
+extern "C" __global__
+void forget_mult_forward(const float* f, const float* x, float* h,
+                         const float* hidden_init,
+                         int seq, int batch, int hidden)
+{
+    int hid = blockIdx.x * blockDim.x + threadIdx.x;
+    int bid = blockIdx.y * blockDim.y + threadIdx.y;
+    if (hid >= hidden || bid >= batch) return;
+
+    float prev = hidden_init ? hidden_init[bid * hidden + hid] : 0.0f;
+
+    for (int t = 0; t < seq; ++t) {
+        int idx = t * batch * hidden + bid * hidden + hid;
+        float ft = f[idx];
+        float xt = x[idx];
+        float ht = ft * xt + (1.0f - ft) * prev;
+        h[idx] = ht;
+        prev = ht;
+    }
+}
+```
+
+梯度反向传播时的过程如下
+
+首先对于最后一个时间步 ${{\partial L} \over {\partial h(t)}}$，计算 $f(t)$ 和 $x(t)$ 的梯度，
+$$
+{{\partial L} \over {\partial f(t)}} = {{\partial L} \over {\partial h(t)}}*{{\partial h(t)} \over {\partial f(t)}} = {{\partial L} \over {\partial h(t)}}\left( {x(t) - h(t - 1)} \right)
+$$
+$$
+{{\partial L} \over {\partial x(t)}} = {{\partial L} \over {\partial h(t)}}*{{\partial h(t)} \over {\partial x(t)}} = {{\partial L} \over {\partial h(t)}}f(t)
+$$
+代码如下
+```c++
+extern "C" __global__
+void forget_mult_backward(const float* f, const float* x, const float* h,
+                          const float* gh,
+                          float* gf, float* gx, float* gh_init,
+                          int seq, int batch, int hidden)
+{
+    int hid = blockIdx.x * blockDim.x + threadIdx.x;
+    int bid = blockIdx.y * blockDim.y + threadIdx.y;
+    if (hid >= hidden || bid >= batch) return;
+
+    float running_f = 0.0f;
+    for (int t = seq - 1; t >= 0; --t) {
+        int idx = t * batch * hidden + bid * hidden + hid;
+        float ft = f[idx];
+        float xt = x[idx];
+        float h_prev = (t > 0) ? h[(t - 1) * batch * hidden + bid * hidden + hid] : 0.0f;
+
+        float gh_val = gh[idx];
+        running_f += gh_val;
+
+        gx[idx] = ft * running_f;
+        gf[idx] = (xt - h_prev) * running_f;
+        running_f = running_f - ft * running_f;
+    }
+    gh_init[bid * hidden + hid] = running_f;
+}
+```
+
+这里需要解释一下 `running_f += gh_val;` 和 `running_f = running_f - ft * running_f;` 这两行代码。因为当前的时间步会对未来的时间步梯度产生影响，从损失的角度来看，当前时间步的梯度会由当前时间步损失的梯度和所有未来时间步损失的梯度组成，对应了`running_f += gh_val;`
+
+$$
+{{\partial L} \over {\partial h(t)}} = {{\partial \left( {\sum\nolimits_{k = 1}^T {{L_k}} } \right)} \over {\partial h(t)}} = {{\partial {L_t}} \over {\partial h(t)}} + \sum\limits_{k = t + 1}^T {{{\partial {L_k}} \over {\partial h(t)}}} 
+$$
+在计算未来时间步损失的梯度时有如下公式
+$$
+{{\partial {L_k}} \over {\partial h(t)}} = {{\partial {L_k}} \over {\partial h(k)}}*{{\partial h(k)} \over {\partial h(k - 1)}}* \ldots {{\partial h(t + 1)} \over {\partial h(t)}} = {{\partial {L_k}} \over {\partial h(k)}}\prod\limits_{k = t + 1}^T {\left( {1 - y(k)} \right)} 
+$$
+因此`running_f = running_f - ft * running_f;`是在计算上式，这也是rnn模型容易梯度爆炸或者消失的原因，
+
 ### 矩阵相乘
 
 
