@@ -8,8 +8,8 @@ Triton 提供了一种使用python进行gpu编程的方法，相比于直接使�
 
 [BobMcDear/attorch](https://github.com/BobMcDear/attorch)：基于Triton实现了部分Pytorch网络（Conv、Multihead、一些激活函数和归一化）
 
-
 ## 基础
+
 
 Triton中使用 `triton.jit` 修饰核函数，核函数运行在设备（GPU）上，需要将数据提前送入设备中。
 
@@ -96,6 +96,23 @@ def benchmark(size, provider):
     return gbps(ms), gbps(max_ms), gbps(min_ms)
 
 benchmark.run(print_data=True, show_plots=True)
+```
+
+
+## 内存访问
+
+triton中提供了 `triton.language.load` 和 `triton.language.store`来读取和写入数据，为了定位数据，需要给定数据的offset。
+
+计算offset时，需要考虑张量的形状，如一个大小为 `[batch, seq, dim]` 的张量 x，如果想要访问`x[b, s, d1:d2]`，那么offset可以写成
+
+```python
+offset = b * seq * dim + s * dim + d1 + tl.arange(d2)
+```
+
+注意为了防止访问越界，所以需要加上一个mask，mask可以写为
+
+```python
+mask = offset < b * seq * dim + s * dim + dim
 ```
 
 
@@ -223,9 +240,7 @@ import triton
 import triton.language as tl
 
 @triton.jit
-def matmul_kernel(a_ptr, b_ptr, c_ptr, 
-                  a_row_stride, b_row_stride, b_col_stride, c_row_stride, c_col_stride, 
-                  m, n, k,  block_size: tl.constexpr):
+def matmul_kernel(a_ptr, b_ptr, c_ptr, a_row_stride, b_row_stride, b_col_stride, c_row_stride, c_col_stride, m, n, k,  block_size: tl.constexpr):
     x_pid = tl.program_id(0)
     y_pid = tl.program_id(1)
     
@@ -613,6 +628,45 @@ test_layer_norm(100, 256, torch.float32)
 ### 注意力
 
 详见 [triton/python/tutorials/06-fused-attention.py](https://github.com/triton-lang/triton/blob/v2.1.0/python/tutorials/06-fused-attention.py)
+
+
+### 遗忘门
+
+代码地址：[forgetmult.py](https://gist.github.com/Xiang-M-J/15a7740e26494bc8105f1a8a7fca0be9)
+
+使用triton实现了
+$$
+\eqalign{
+  & h(0) = 0  \cr 
+  & h(t) = f(t)*x(t) + \left( {1 - f(t)} \right)*h(t - 1) \cr} 
+$$
+关于这个公式的前向和后向过程详见CUDA原生->实践->遗忘门
+
+对于输入$x\in R^{seq\times batch\times dim}$，对batch和dim进行分块处理，具体来说，每个batch分配一个线程，dim将其分成若干个BLOCK_SIZE大小的block，每个block对应一个线程，前向过程如下所示
+
+```python
+@triton.jit
+def forgetmulti_forward_kernel(f_ptr, x_ptr, h_ptr, hidden_init, seq, batch, dim, BLOCK_SIZE: tl.constexpr):
+    bid = tl.program_id(0)  # 对应batch
+    hid = tl.program_id(1)  # 将dim维度分成若干个block，hid为block的索引
+
+    if hidden_init is not None:
+        offset = bid * dim + hid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        prev = tl.load(hidden_init + offset, offset <
+                       bid * dim + dim, other=0.0)
+    else:
+        prev = tl.zeros((BLOCK_SIZE), tl.float32)
+    for t in range(seq):
+        start = t * batch * dim + bid * dim + hid * BLOCK_SIZE
+        offset = start + tl.arange(0, BLOCK_SIZE)
+        ft = tl.load(f_ptr+offset, offset < start + dim, other=0.0)
+        xt = tl.load(x_ptr+offset, offset < start + dim, other=0.0)
+
+        ht = ft * xt + (1 - ft) * prev
+        tl.store(h_ptr+offset, ht, offset < start + dim)
+        prev = ht
+```
+
 
 
 # CUDA 原生
