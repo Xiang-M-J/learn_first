@@ -330,7 +330,10 @@ func main() {
 
 #### 字符串格式化
 
-类似 C 语言的 printf
+使用fmt提供的 `Sprintf` 方法，如下所示
+```go
+fmt.Sprintf("sprintf: a %s", str_val)
+```
 
 %v 输出值，%+v 输出键值对，%#v 输出类型和键值对，%T 输出类型，%t 输出 bool 值，%d 输出数值，%b 输出二进制，%c 输出字符，%x 输出十六进制，
 
@@ -589,6 +592,68 @@ func main() {
 }
 ```
 
+
+### Json
+
+Go中的json和字符串的相互转换比较麻烦，最好使用结构体+json自带方法实现
+
+**构造json**
+
+假设需要构造一个json：`"query": "..."`，可以使用如下方式
+
+```go
+type QueryRequest struct {
+	Query string `json:"query"`
+}
+
+query := "hello,...."
+
+reqBody := QueryRequest{Query: query}
+jsonData, err := json.Marshal(reqBody)
+if err != nil {
+	panic(err)
+}
+```
+
+**解析json**
+
+最好先把json内容写到一个文件里面，观察json的结构，然后再定义结构体来解析，假设json的结构如下所示
+
+```json
+{
+    "results": [
+        {
+            "title": "...",
+            "url": "...",
+            "content": "..."
+        },
+        {
+            "title": "...",
+            "url": "...",
+            "content": "..."
+        },
+    ]
+}
+```
+
+go代码如下所示
+
+```go
+type WebSearchResponse struct {
+	Results []SearchResult `json:"results"`
+}
+
+type SearchResult struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Content string `json:"content"`
+}
+var searchResponse WebSearchResponse
+err = json.Unmarshal(body, &searchResponse)
+if err != nil {
+	panic(err)
+}
+```
 
 ### 结构
 
