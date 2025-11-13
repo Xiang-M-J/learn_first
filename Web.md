@@ -863,6 +863,8 @@ html中引入该js文件的代码为
 ```
 
 
+
+
 ## 实用功能
 
 ### 读取本地文件
@@ -877,3 +879,102 @@ html中引入该js文件的代码为
   fetchText();
 </script>
 ```
+
+
+
+## TypeScript
+
+TypeScript是JavaScript的超集，在JavaScript中加入了语法检查，检查类型错误。
+
+有两种方式可以在项目中引入typescript
+
+1. 使用npm下载 `npm install -g typescript`
+2. 下载Visual Studio的TypeScript插件
+
+在npm中安装完typescript后，可以使用`tsc main.ts`来将ts转为js文件，用于html等。
+
+typescript中有interface接口，用于指定一个对象模板，可以看成是一种类型约定，即这种类型的实例需要包含这些属性
+
+```ts
+interface Person {
+  firstName: string;
+  lastName: string;
+}
+ 
+function greeter(person: Person) {
+  return "Hello, " + person.firstName + " " + person.lastName;
+}
+ 
+let user = { firstName: "Jane", lastName: "User" };
+ 
+document.body.textContent = greeter(user);
+```
+
+
+在ts中获取到页面元素后最好将其转为特定的类，否则访问某些属性时会报错
+
+```ts
+let btn: HTMLInputElement = document.getElementById("btn") as HTMLInputElement;
+btn.onclick = () => {
+    let btn_info = document.getElementById("btn_info");
+    if (btn_info != null) {
+        if (btn.checked) {
+            btn_info.innerText = "选中";
+        } else {
+            btn_info.innerText = "未选中";
+        }
+    }
+}
+```
+
+
+# Node.js
+
+**Node.js** 是一个基于 **Chrome V8 引擎** 的 **JavaScript 运行环境**，它的核心作用是让 JavaScript 不仅能在浏览器中运行，也能在 **服务器端** 运行，即用JavaScript写后端。
+
+Node.js可以用于编写Web服务器、编写实时应用、命令行工具和跨平台应用等。
+
+可以使用`node main.js`直接运行js文件
+
+## 基础操作
+
+
+### 文件操作
+
+使用fs模块
+
+```js
+// import { sample_rate, read_audio } from "./audio_utils.js";
+
+// console.log(sample_rate);
+
+// read_audio("audio.mp3");
+
+import { readFile, writeFile, stat } from 'node:fs';
+
+let data = "hello world";
+writeFile("test.txt", data, function(err) {
+    if (err) {
+        console.log(err);
+    }
+})
+
+readFile("test.txt", function (err, data) {
+    if (err) {
+        console.log(err);
+    }else{
+        const uint8Array = new Uint8Array(data);
+        const decoder = new TextDecoder("utf-8");
+        console.log(decoder.decode(uint8Array));
+    }
+})
+
+stat("test.txt", function(err, st){
+    if (err) {
+        console.log(err);
+    }else{
+        console.log(st.isFile());
+    }
+});
+```
+
