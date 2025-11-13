@@ -1,5 +1,7 @@
 ## 创建React项目
 
+>npm create vite@latest my-app -- --template react-ts
+
 > create-vite 项目名 --template react   (更快、更轻)
 
 > create-react 项目名
