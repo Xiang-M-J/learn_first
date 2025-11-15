@@ -978,3 +978,66 @@ stat("test.txt", function(err, st){
 });
 ```
 
+
+# mdx
+
+[Markdown for the component era | MDX](https://mdxjs.com/)
+
+mdx可以在markdown中使用jsx，从而可以引入一些交互式组件
+
+mdx可以在react中使用，使用过程如下
+
+1. 创建一个react项目
+```sh
+npm create vite@latest my-app -- --template react-ts
+```
+2. 安装和配置mdx相关插件：[`@mdx-js/rollup`](https://mdxjs.com/packages/rollup/)，支持数学的插件[`remark-math`](https://github.com/remarkjs/remark-math/tree/main/packages/remark-math)、[`rehype-mathjax`](https://github.com/remarkjs/remark-math/tree/main/packages/rehype-mathjax)，支持GFM的插件：[`remark-gfm`](https://github.com/remarkjs/remark-gfm)， 语法高亮插件不知道怎么配置，好像没有用。在vite.config.ts中添加配置
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import mdx from "@mdx-js/rollup"
+import rehypeMathjax from "rehype-mathjax"
+import remarkMath from 'remark-math'
+import rehypeHighlight from 'rehype-highlight'
+import remarkGfm from "remark-gfm"
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [
+    react(),
+    mdx({remarkPlugins: [remarkMath, remarkGfm], rehypePlugins: [rehypeMathjax, rehypeHighlight]})
+    // {enforce: 'pre', ...mdx({/* jsxImportSource: …, otherOptions… */})},
+  ],
+})
+```
+3. 编写一个mdx文档
+```js
+export function Thing() {
+  return <>World</>
+}
+
+# Hello <Thing />
+$x+y=z$
+
+$$
+x ^2  + y^2 = z^2
+$$
+```
+
+4. 在main.tsx中导入mdx文档
+```js
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
+import Example from './input.mdx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    {/* <App /> */}
+    <Example></Example>
+
+  </StrictMode>,
+)
+```
+
