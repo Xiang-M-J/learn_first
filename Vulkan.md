@@ -862,7 +862,7 @@ void cleanup() {
 
 图形管线是一系列操作，它将网格的顶点和纹理一直带到渲染目标中的像素。可以简化为
 
-![vulkan_simplified_pipeline](images/vulkan/vulkan_simplified_pipeline.svg)
+![vulkan_simplified_pipeline](images\vulkan\vulkan_simplified_pipeline.svg)
 
 >图中绿色部分为固定功能阶段，允许使用参数调整其操作，但它们的工作方式是预定义的。
 >橙色部分是可编程，可以将自己的代码上传到图形卡以精确应用您想要的操作
