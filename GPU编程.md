@@ -655,7 +655,7 @@ def forgetmulti_forward_kernel(f_ptr, x_ptr, h_ptr, hidden_init, seq, batch, dim
         prev = tl.load(hidden_init + offset, offset <
                        bid * dim + dim, other=0.0)
     else:
-        prev = tl.zeros((BLOCK_SIZE), tl.float32)
+        prev = tl.zeros((BLOCK_SIZE,), tl.float32)
     for t in range(seq):
         start = t * batch * dim + bid * dim + hid * BLOCK_SIZE
         offset = start + tl.arange(0, BLOCK_SIZE)
