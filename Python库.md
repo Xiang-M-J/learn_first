@@ -29,10 +29,14 @@ Triton 是一个专门为深度学习和高性能计算任务设计的编程语�
 
 官方提供了whl文件，可以直接 `pip install`
 
-### Windows（似乎不行）
+### Windows
 
-仅支持cuda12.x
 [woct0rdho/triton-windows: Fork of the Triton language and compiler for Windows support](https://github.com/woct0rdho/triton-windows) 提供了适用于Windows平台的triton whl文件
+
+仅支持cuda12.x，所以需要将cuda升级到12.x，同时安装torch2.y+cu12.x
+
+[guide for pip-installing cuda/cudnn to be compatible with triton-windows · Issue #43 · woct0rdho/triton-windows](https://github.com/woct0rdho/triton-windows/issues/43)
+
 
 
 ## Mamba 
