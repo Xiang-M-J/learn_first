@@ -670,6 +670,30 @@ def forgetmulti_forward_kernel(f_ptr, x_ptr, h_ptr, hidden_init, seq, batch, dim
 
 
 # CUDA 原生
+
+
+## Windows+torch+cuda
+
+如果想在Windows和torch的环境中使用包含cuda函数的python库，需要满足三个条件
+
+**ninja**：从[Releases · ninja-build/ninja](https://github.com/ninja-build/ninja/releases)下载编译好的ninja，并将存放ninja.exe的文件夹添加到路径变量中。
+**visual studio**：使用较新版本的visual studio，如2022版本。需要安装使用C++的桌面开发，在可选中选择下面这个组件（不确定是否必须）
+
+![](images/GPU编程/vs2022_c1.png)
+
+cuda可能不能适配最新的生成工具，需要在单个组件中选择v14.34版本的生成工具
+
+![](images/GPU编程/vs2022_c2.png)
+
+将cl.exe的路径添加到路径变量中，如`D:\VisualStudio\Community\VC\Tools\MSVC\14.34.31933\bin\Hostx64\x64`
+
+**torch和cuda**：torch和cuda的版本需要对应，如torch2.4+cu124需要安装cuda12.4，否则可能会报错：
+```
+UserWarning: Just-in-time loading and compiling the CUDA kernels of SRU was unsuccessful. Got the following error:
+Could not find module 'C:\Users\admin\AppData\Local\torch_extensions\torch_extensions\Cache\py310_cu124\sru_cuda\sru_cuda.pyd' (or one of its dependencies). Try using the full path with constructor syntax.  
+  warnings.warn("Just-in-time loading and compiling the CUDA kernels of SRU was unsuccessful. "
+```
+
 ## conda
 
 ### conda 环境管理
