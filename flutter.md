@@ -6,7 +6,7 @@ API 文档：https://api.flutter.dev/flutter
 
 **flutter 构建 apk**
 
-```cmd
+```bash
 flutter build apk
 ```
 
@@ -14,8 +14,16 @@ flutter build apk
 
 如果有多个入口文件，可以用如下方式编译 apk
 
-```cmd
+```bash
 flutter build apk -t lib\main_1.dart
+```
+
+
+当系统中安装了多个版本的android studio，直接flutter run可能会报错，可以通过下面这条命令来设置flutter使用的android studio
+
+```bash
+# 告知 Flutter 你的 Android Studio 安装在哪里
+flutter config --android-studio-dir="D:\Your\Desired\Android Studio Path"
 ```
 
 ## Java/Kotlin 插件开发
@@ -109,6 +117,105 @@ dependencies:
 
 注意修改 pubspec.yaml 中的 descrpition、添加 repository，此外还需要修改 License。
 
+
+### Java转为Kotlin
+
+对于本来为java语言的插件，需要先修改`android/build.gradle`
+
+```groovy
+buildscript {  
+    ext.kotlin_version = '1.9.24'  
+    repositories {  
+        google()  
+        mavenCentral()  
+        maven { url 'https://jitpack.io' }  
+    }  
+    dependencies {  
+        classpath "com.android.tools.build:gradle:8.1.4"  
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"  
+    }  
+}
+
+apply plugin: "com.android.library"  
+apply plugin: 'kotlin-android'   // 新添加
+
+android {
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+        // main.java.srcDirs += 'src/main/java'
+    }
+//...
+
+dependencies {  
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    // ...
+}
+```
+
+然后可以将java转换为kotlin文件，最后需要将kotlin文件全部放到与java文件夹同级别的kotlin文件夹中，原本的java文件夹可以删除。
+
+修改`example\android\build.gradle`，添加buildscript
+
+```groovy
+buildscript {
+    // 定义 Kotlin 版本
+    ext.kotlin_version = '1.9.10' 
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        // 1. 核心修复：添加 Kotlin 插件路径
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        // 2. 确保 Android Gradle 插件版本（通常由 Flutter 自动管理，但写在这里更稳妥）
+        classpath 'com.android.tools.build:gradle:7.4.2'
+    }
+}
+```
+修改`example\android\app\build.gradle`，添加
+
+```groovy
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+```
+
+确保`example\android\settings.gradle`中的kotlin版本和buildscript一致
+
+```groovy
+plugins {
+    id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+    id "com.android.application" version "7.3.0" apply false
+    id "org.jetbrains.kotlin.android" version "1.9.10" apply false
+}
+```
+
+在`android\build.gradle`中添加kotlinOptions，保证目标一致
+
+```groovy
+android {
+    if (project.android.hasProperty("namespace")) {
+        namespace = "com.example.starburst_translate"
+    }
+
+    compileSdk = 34
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+        // main.java.srcDirs += 'src/main/java'
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+```
 
 ### 录制系统播放的声音
 
