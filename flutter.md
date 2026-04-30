@@ -1450,6 +1450,76 @@ env->SetFloatArrayRegion(jspec, 0, frameSize, spec);
 ```
 
 
+### 基于模板开发
+
+flutter提供了C/C++插件开发的模板，使用下面这条命令创建C/C++插件
+
+```bash
+flutter create --template=plugin_ffi <plugin_name>
+```
+
+使用模板开发可以避免自己手动编写绑定代码，使用下面这条命令自动生成绑定（绑定文件位于lib/xxx_bindings_generated.dart）
+
+```bash
+dart run ffigen --config ffigen.yaml
+```
+
+这条命令需要使用`ffigen.yaml`，通过该文件指定编译。Windows平台下无法直接找到LLVM，如果安装了Visual Studio，可以指定路径为Visual Studio中的LLVM
+
+```yaml
+output: 'lib/flutter_webrtcvad_bindings_generated.dart'
+# 添加下面这个配置
+llvm-path:
+  - 'D:\VisualStudio\Community\VC\Tools\Llvm\x64'
+```
+
+
+开发插件之后，为了实现自动编译，需要在插件根目录下android/build.gradle添加配置，该配置原本是自动生成，如果在创建插件时没有指定平台，似乎不会生成android文件夹，此时可以通过下面这条命令生成
+
+```bash
+flutter create --template=plugin_ffi --platforms android .
+```
+
+生成的android/build.gradle应当存在如下配置
+
+```groovy
+android {
+    // ...
+
+    // Invoke the shared CMake build with the Android Gradle Plugin.
+    externalNativeBuild {
+        cmake {
+            path = "../src/CMakeLists.txt"
+
+            // The default CMake version for the Android Gradle Plugin is 3.10.2.
+            // https://developer.android.com/studio/projects/install-ndk#vanilla_cmake
+            //
+            // The Flutter tooling requires that developers have CMake 3.10 or later
+            // installed. You should not increase this version, as doing so will cause
+            // the plugin to fail to compile for some customers of the plugin.
+            // version "3.10.2"
+        }
+    }
+	// ...
+}
+```
+
+同时需要修改根目录下的pubspec.yaml中的插件定义部分如下所示
+
+```yaml
+flutter:
+  # Please refer to README.md for a detailed explanation.
+  plugin:
+    platforms:
+    # This FFI plugin project was generated without specifying any
+    # platforms with the `--platform` argument. If you see the `some_platform` map below, remove it and
+    # then add platforms following the instruction here:
+    # https://flutter.dev/docs/development/packages-and-plugins/developing-packages#plugin-platforms
+    # -------------------
+      android:
+        ffiPlugin: true
+```
+
 
 ## build.gradle 任务
 
